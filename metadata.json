@@ -1,0 +1,5 @@
+{
+  "name": "Eden Wallet",
+  "description": "A personal finance ledger for tracking individual and shared expenses with structured categories and sub-categories.",
+  "requestFramePermissions": []
+}
