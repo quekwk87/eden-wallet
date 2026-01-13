@@ -1,4 +1,3 @@
-
 import { Transaction, Ledger, WorkspaceSettings } from './types';
 import { supabase, isSupabaseConfigured } from './supabase';
 
@@ -16,7 +15,11 @@ export const dataStorage = {
         .eq('ledger', ledger)
         .order('date', { ascending: false });
       
-      if (!error && data) return data;
+      if (error) {
+        console.error(`Supabase Fetch Error (${ledger}):`, error.message);
+      } else if (data) {
+        return data;
+      }
     }
     
     // 2. Fallback to local storage
@@ -32,7 +35,14 @@ export const dataStorage = {
         user_id: SHARED_USER_ID,
         ledger: ledger
       }]);
-      if (!error) return true;
+      
+      if (error) {
+        console.error("Supabase Save Error:", error.message);
+        // We return false here if we want to force local fallback, 
+        // but logging helps the user see WHY it failed.
+      } else {
+        return true;
+      }
     }
 
     // 2. Fallback to local storage
@@ -46,7 +56,11 @@ export const dataStorage = {
     // 1. Try Supabase
     if (isSupabaseConfigured && supabase) {
       const { error } = await supabase.from('transactions').delete().eq('id', id);
-      if (!error) return true;
+      if (error) {
+        console.error("Supabase Delete Error:", error.message);
+      } else {
+        return true;
+      }
     }
 
     // 2. Local Storage
@@ -58,24 +72,26 @@ export const dataStorage = {
 
   async getSettings(ledger: Ledger): Promise<WorkspaceSettings | null> {
     if (isSupabaseConfigured && supabase) {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('workspace_settings')
         .select('settings')
         .eq('user_id', SHARED_USER_ID)
         .eq('ledger', ledger)
         .maybeSingle();
+      
+      if (error) console.error("Supabase Settings Fetch Error:", error.message);
       if (data) return data.settings;
     }
     return null;
   },
 
   async saveSettings(settings: WorkspaceSettings, ledger: Ledger): Promise<void> {
-    // In a full implementation, we would update Supabase here as well.
-    // For now, we prioritize persistence via local storage or initial cloud fetch.
     if (isSupabaseConfigured && supabase) {
-      await supabase
+      const { error } = await supabase
         .from('workspace_settings')
         .upsert({ user_id: SHARED_USER_ID, ledger, settings });
+      
+      if (error) console.error("Supabase Settings Save Error:", error.message);
     }
   }
 };
