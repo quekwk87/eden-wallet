@@ -29,7 +29,9 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
   defaultAccountType
 }) => {
   const categoryNames = Object.keys(categories);
-  
+    // Fix: Explicitly cast Object.entries to ensure TypeScript correctly infers config as AccountConfig
+  const accountEntries = Object.entries(accountConfigs) as [string, AccountConfig][];
+
   const [amount, setAmount] = useState(initialData?.amount.toString() || '');
   const [date, setDate] = useState(initialData?.date || new Date().toISOString().split('T')[0]);
   const [spending_category, setSpendingCategory] = useState(initialData?.spending_category || categoryNames[0] || '');
