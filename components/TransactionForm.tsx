@@ -1,20 +1,21 @@
 
 import React, { useState, useEffect } from 'react';
 import { AccountType, Transaction, CategoryMap, AccountConfig } from '../types';
+import { getLocalDateString } from '../utils';
 
 interface TransactionFormProps {
   initialData?: Transaction;
   onCancel?: () => void;
   categories: CategoryMap;
   themeColor?: string;
-  accountConfigs: Record<AccountType, AccountConfig>;
-  defaultAccountType: AccountType;
+  accountConfigs: Record<string, AccountConfig>;
+  defaultAccountType: string;
   onSubmit: (t: { 
     date: string; 
     amount: number; 
     spending_category: string; 
     sub_category: string; 
-    account_type: AccountType;
+    account_type: string;
     remarks: string;
   }) => void;
 }
@@ -29,14 +30,19 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
   defaultAccountType
 }) => {
   const categoryNames = Object.keys(categories);
-    // Fix: Explicitly cast Object.entries to ensure TypeScript correctly infers config as AccountConfig
   const accountEntries = Object.entries(accountConfigs) as [string, AccountConfig][];
-
+  
   const [amount, setAmount] = useState(initialData?.amount.toString() || '');
-  const [date, setDate] = useState(initialData?.date || new Date().toISOString().split('T')[0]);
+  // Fix: Use local date string utility
+  const [date, setDate] = useState(initialData?.date || getLocalDateString());
   const [spending_category, setSpendingCategory] = useState(initialData?.spending_category || categoryNames[0] || '');
   const [sub_category, setSubCategory] = useState(initialData?.sub_category || categories[categoryNames[0]]?.[0] || '');
-  const [selectedAccount, setSelectedAccount] = useState<AccountType>(initialData?.account_type || defaultAccountType);
+  
+  const initialAccount = (initialData?.account_type && accountConfigs[initialData.account_type])
+    ? initialData.account_type
+    : (accountConfigs[defaultAccountType] ? defaultAccountType : accountEntries[0]?.[0] || '');
+    
+  const [selectedAccount, setSelectedAccount] = useState<string>(initialAccount);
   const [remarks, setRemarks] = useState(initialData?.remarks || '');
 
   useEffect(() => {
@@ -45,12 +51,12 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
       setDate(initialData.date);
       setSpendingCategory(initialData.spending_category);
       setSubCategory(initialData.sub_category);
-      setSelectedAccount(initialData.account_type);
+      setSelectedAccount(accountConfigs[initialData.account_type] ? initialData.account_type : (accountEntries[0]?.[0] || ''));
       setRemarks(initialData.remarks);
     } else {
-      setSelectedAccount(defaultAccountType);
+      setSelectedAccount(accountConfigs[defaultAccountType] ? defaultAccountType : (accountEntries[0]?.[0] || ''));
     }
-  }, [initialData, defaultAccountType]);
+  }, [initialData, defaultAccountType, accountConfigs]);
 
   useEffect(() => {
     if (!initialData || spending_category !== initialData.spending_category) {
@@ -62,7 +68,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!amount || !spending_category) return;
+    if (!amount || !spending_category || !selectedAccount) return;
 
     onSubmit({
       amount: parseFloat(amount),
@@ -76,7 +82,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
     if (!initialData) {
       setAmount('');
       setRemarks('');
-      setSelectedAccount(defaultAccountType);
+      setSelectedAccount(accountConfigs[defaultAccountType] ? defaultAccountType : (accountEntries[0]?.[0] || ''));
     }
   };
 
@@ -148,7 +154,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
       <div className="space-y-3">
         <label className="block text-sm font-medium text-slate-700">Account Label</label>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          {(Object.entries(accountConfigs) as [AccountType, AccountConfig][]).map(([type, config]) => (
+          {accountEntries.map(([type, config]) => (
             <button
               key={type}
               type="button"
@@ -163,6 +169,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
               {config.label}
             </button>
           ))}
+          {accountEntries.length === 0 && <p className="text-rose-500 text-xs italic">No labels found. Please add one in Settings.</p>}
         </div>
       </div>
 
@@ -170,7 +177,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
         {onCancel && (
           <button type="button" onClick={onCancel} className="flex-1 px-4 py-3 border border-slate-200 text-slate-600 font-bold rounded-xl">Cancel</button>
         )}
-        <button type="submit" className={`flex-[2] bg-${themeColor}-600 text-white font-bold py-3.5 rounded-xl shadow-lg`}>
+        <button type="submit" className={`flex-[2] bg-${themeColor}-600 text-white font-bold py-3.5 rounded-xl shadow-lg disabled:opacity-50`} disabled={accountEntries.length === 0}>
           {initialData ? 'Save Changes' : 'Record Entry'}
         </button>
       </div>

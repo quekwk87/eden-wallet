@@ -1,12 +1,13 @@
 
 import React from 'react';
-import { Transaction, AccountType, AccountConfig } from '../types';
+import { Transaction, AccountConfig } from '../types';
+import { parseLocalDate } from '../utils';
 
 interface TransactionListProps {
   transactions: Transaction[];
   onDelete: (id: string) => void;
   onEdit: (t: Transaction) => void;
-  accountConfigs: Record<AccountType, AccountConfig>;
+  accountConfigs: Record<string, AccountConfig>;
 }
 
 const TransactionList: React.FC<TransactionListProps> = ({ 
@@ -38,10 +39,13 @@ const TransactionList: React.FC<TransactionListProps> = ({
         <tbody className="divide-y divide-slate-100">
           {transactions.map((t) => {
             const config = accountConfigs[t.account_type];
+            // Fix: Parse local date to prevent shifting to previous day
+            const dateObj = parseLocalDate(t.date);
+            
             return (
               <tr key={t.id} className="hover:bg-slate-50 transition-colors group">
                 <td className="py-4 text-sm text-slate-600">
-                  {new Date(t.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                  {dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                 </td>
                 <td className="py-4">
                   <div className="flex flex-col">
@@ -53,9 +57,15 @@ const TransactionList: React.FC<TransactionListProps> = ({
                   </div>
                 </td>
                 <td className="py-4">
-                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] uppercase font-bold tracking-wider bg-${config.color}-100 text-${config.color}-700`}>
-                    {config.label}
-                  </span>
+                  {config ? (
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] uppercase font-bold tracking-wider bg-${config.color}-100 text-${config.color}-700`}>
+                      {config.label}
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] uppercase font-bold tracking-wider bg-slate-100 text-slate-400 italic">
+                      Deleted Label
+                    </span>
+                  )}
                 </td>
                 <td className="py-4 text-right font-semibold text-slate-700 tabular-nums">
                   ${t.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}

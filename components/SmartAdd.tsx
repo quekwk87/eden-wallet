@@ -3,12 +3,13 @@ import React, { useState } from 'react';
 import { GoogleGenAI, Type } from "@google/genai";
 import { AccountType, CategoryMap, Transaction, Ledger, AccountConfig } from '../types';
 import TransactionForm from './TransactionForm';
+import { getLocalDateString } from '../utils';
 
 interface SmartAddProps {
   categories: CategoryMap;
   onAdd: (t: Omit<Transaction, 'id'>) => void;
   currentLedger: Ledger;
-  accountConfigs: Record<AccountType, AccountConfig>;
+  accountConfigs: Record<string, AccountConfig>;
 }
 
 const SmartAdd: React.FC<SmartAddProps> = ({ categories, onAdd, currentLedger, accountConfigs }) => {
@@ -26,16 +27,17 @@ const SmartAdd: React.FC<SmartAddProps> = ({ categories, onAdd, currentLedger, a
     setError(null);
 
     try {
-      // Create a new instance right before the call as per @google/genai guidelines.
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-      const today = new Date().toISOString().split('T')[0];
+      // Fix: Use local date for AI context
+      const today = getLocalDateString();
       
       const categoryContext = Object.keys(categories).join(', ');
       const subCategoryContext = (Object.entries(categories) as [string, string[]][])
         .map(([cat, subs]) => `${cat}: [${subs.join(', ')}]`)
         .join('; ');
 
-      const accountContext = (Object.entries(accountConfigs) as [AccountType, AccountConfig][])
+      const availableAccountTypes = Object.keys(accountConfigs);
+      const accountContext = (Object.entries(accountConfigs) as [string, AccountConfig][])
         .map(([key, config]) => `${key}: "${config.label}"`)
         .join(', ');
 
@@ -43,11 +45,10 @@ const SmartAdd: React.FC<SmartAddProps> = ({ categories, onAdd, currentLedger, a
       Current Workspace: ${currentLedger}. Today: ${today}.
       Available Categories: ${categoryContext}. 
       Sub-categories: ${subCategoryContext}.
-      Account Labels: ${accountContext}.
+      Account Labels (Use these keys): ${accountContext}.
       
       Map to the closest valid values. Amount should be numeric. Use YYYY-MM-DD.`;
 
-      // Using gemini-3-pro-preview for complex natural language reasoning and parsing.
       const response = await ai.models.generateContent({
         model: 'gemini-3-pro-preview',
         contents: prompt,
@@ -60,7 +61,7 @@ const SmartAdd: React.FC<SmartAddProps> = ({ categories, onAdd, currentLedger, a
               amount: { type: Type.NUMBER },
               spending_category: { type: Type.STRING },
               sub_category: { type: Type.STRING },
-              account_type: { type: Type.STRING, enum: Object.values(AccountType) },
+              account_type: { type: Type.STRING }, 
               clarification: { type: Type.STRING }
             },
             required: ["date", "amount", "spending_category", "sub_category", "account_type"]
@@ -69,6 +70,11 @@ const SmartAdd: React.FC<SmartAddProps> = ({ categories, onAdd, currentLedger, a
       });
 
       const result = JSON.parse(response.text || '{}');
+      
+      if (!availableAccountTypes.includes(result.account_type)) {
+        result.account_type = availableAccountTypes[0];
+      }
+
       setParsedResult({ ...result, remarks: '' });
       if (result.clarification) setError(`AI Note: ${result.clarification}`);
     } catch (err) {
@@ -86,12 +92,12 @@ const SmartAdd: React.FC<SmartAddProps> = ({ categories, onAdd, currentLedger, a
           value={inputText}
           onChange={(e) => setInputText(e.target.value)}
           placeholder="e.g., $15 for dinner tonight at hawker centre"
-          className="w-full h-24 px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none text-sm transition-all"
+          className="w-full h-24 px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none text-sm transition-all focus:ring-2 focus:ring-slate-200"
         />
         <button
           onClick={parseText}
           disabled={isParsing || !inputText.trim()}
-          className={`absolute bottom-3 right-3 p-2 bg-${themeColor}-600 text-white rounded-xl shadow-md`}
+          className={`absolute bottom-3 right-3 p-2 bg-${themeColor}-600 text-white rounded-xl shadow-md disabled:opacity-50`}
         >
           {isParsing ? <div className="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full" /> : <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>}
         </button>
@@ -108,7 +114,7 @@ const SmartAdd: React.FC<SmartAddProps> = ({ categories, onAdd, currentLedger, a
             categories={categories}
             themeColor={themeColor}
             accountConfigs={accountConfigs}
-            defaultAccountType={AccountType.OWN_EXPENSE}
+            defaultAccountType={parsedResult.account_type}
           />
         </div>
       )}
