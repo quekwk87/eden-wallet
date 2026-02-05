@@ -1,5 +1,8 @@
 
-export enum AccountType {
+export type AccountType = string;
+
+// Standard system keys for logic preservation
+export enum SystemAccountType {
   OWN_EXPENSE = 'OWN_EXPENSE',
   OWED_TO_NXQ = 'OWED_TO_NXQ',
   OWED_BY_NXQ = 'OWED_BY_NXQ',
@@ -43,7 +46,7 @@ export interface AccountConfig {
 
 export interface WorkspaceSettings {
   categories: CategoryMap;
-  accountConfigs: Record<AccountType, AccountConfig>;
+  accountConfigs: Record<string, AccountConfig>;
   defaultAccountType: AccountType;
 }
 

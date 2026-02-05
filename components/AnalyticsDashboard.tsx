@@ -1,9 +1,9 @@
 
 import React, { useMemo, useState } from 'react';
-import { Transaction, AccountType, Balances, MonthlyData, Ledger } from '../types';
+import { Transaction, AccountType, Balances, MonthlyData, Ledger, SystemAccountType } from '../types';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
-  Cell, AreaChart, Area
+  AreaChart, Area
 } from 'recharts';
 import SmartInsights from './SmartInsights';
 
@@ -19,13 +19,14 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ transactions, c
   const isJoint = currentLedger === Ledger.JOINT;
   const themeColor = isJoint ? 'indigo' : 'emerald';
 
-  const isPersonalExpense = (type: AccountType) => {
+  const isPersonalExpense = (type: string) => {
     if (!isJoint) {
-      return [
-        AccountType.OWN_EXPENSE,
-        AccountType.OWED_TO_NXQ,
-        AccountType.OWED_TO_NXQWK
-      ].includes(type);
+      const personalKeys: string[] = [
+        SystemAccountType.OWN_EXPENSE,
+        SystemAccountType.OWED_TO_NXQ,
+        SystemAccountType.OWED_TO_NXQWK
+      ];
+      return personalKeys.includes(type) || type.startsWith('USER_');
     }
     return true;
   };
@@ -41,15 +42,16 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ transactions, c
 
   const stats: Balances = useMemo(() => {
     return filteredTransactions.reduce((acc, t) => {
-      if (isPersonalExpense(t.account_type)) {
+      const type = t.account_type;
+      if (isPersonalExpense(type)) {
         acc.totalSpent += t.amount;
       }
       
-      if (t.account_type === AccountType.OWED_BY_NXQ) acc.netNXQ += t.amount;
-      if (t.account_type === AccountType.OWED_TO_NXQ) acc.netNXQ -= t.amount;
+      if (type === SystemAccountType.OWED_BY_NXQ) acc.netNXQ += t.amount;
+      if (type === SystemAccountType.OWED_TO_NXQ) acc.netNXQ -= t.amount;
       
-      if (t.account_type === AccountType.OWED_BY_NXQWK) acc.netNXQWK += t.amount;
-      if (t.account_type === AccountType.OWED_TO_NXQWK) acc.netNXQWK -= t.amount;
+      if (type === SystemAccountType.OWED_BY_NXQWK) acc.netNXQWK += t.amount;
+      if (type === SystemAccountType.OWED_TO_NXQWK) acc.netNXQWK -= t.amount;
       
       return acc;
     }, { totalSpent: 0, netNXQ: 0, netNXQWK: 0 });
@@ -61,14 +63,14 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ transactions, c
     transactions.forEach(t => {
       if (!isPersonalExpense(t.account_type)) return;
       const date = new Date(t.date);
-      const key = `${date.getFullYear()}-${String(date.getMonth()).padStart(2, '0')}`;
+      const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
       dataMap[key] = (dataMap[key] || 0) + t.amount;
     });
     
     return Object.entries(dataMap)
       .map(([key, amount]) => {
         const [year, month] = key.split('-');
-        const date = new Date(parseInt(year), parseInt(month));
+        const date = new Date(parseInt(year), parseInt(month) - 1);
         const label = date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
         return { sortKey: key, month: label, amount };
       })
@@ -107,17 +109,21 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ transactions, c
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
           <p className="text-slate-500 text-sm font-medium mb-1">Total Spent</p>
-          <span className="text-3xl font-black text-slate-900">${stats.totalSpent.toLocaleString()}</span>
+          <span className="text-3xl font-black text-slate-900">${stats.totalSpent.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
         </div>
         {!isJoint && (
           <>
-            <div className="bg-white p-6 rounded-3xl shadow-sm border border-emerald-100">
-              <p className="text-slate-500 text-sm font-medium mb-1">NXQ owes QWK</p>
-              <span className="text-3xl font-black text-emerald-600">${Math.abs(stats.netNXQ).toLocaleString()}</span>
+            <div className={`bg-white p-6 rounded-3xl shadow-sm border ${stats.netNXQ >= 0 ? 'border-emerald-100' : 'border-rose-100'}`}>
+              <p className="text-slate-500 text-sm font-medium mb-1">{stats.netNXQ >= 0 ? 'NXQ owes QWK' : 'QWK owes NXQ'}</p>
+              <span className={`text-3xl font-black ${stats.netNXQ >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                ${Math.abs(stats.netNXQ).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
             </div>
-            <div className="bg-white p-6 rounded-3xl shadow-sm border border-emerald-100">
-              <p className="text-slate-500 text-sm font-medium mb-1">Fund owes QWK</p>
-              <span className="text-3xl font-black text-emerald-600">${Math.abs(stats.netNXQWK).toLocaleString()}</span>
+            <div className={`bg-white p-6 rounded-3xl shadow-sm border ${stats.netNXQWK >= 0 ? 'border-emerald-100' : 'border-rose-100'}`}>
+              <p className="text-slate-500 text-sm font-medium mb-1">{stats.netNXQWK >= 0 ? 'Fund owes QWK' : 'QWK owes Fund'}</p>
+              <span className={`text-3xl font-black ${stats.netNXQWK >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                ${Math.abs(stats.netNXQWK).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
             </div>
           </>
         )}
@@ -132,7 +138,7 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ transactions, c
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                 <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 11}} />
                 <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 11}} />
-                <Tooltip />
+                <Tooltip formatter={(value: number) => `$${value.toLocaleString()}`} />
                 <Area type="monotone" dataKey="amount" stroke={isJoint ? '#6366f1' : '#10b981'} fillOpacity={0.1} />
               </AreaChart>
             </ResponsiveContainer>
@@ -147,7 +153,7 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({ transactions, c
                 <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
                 <XAxis type="number" hide />
                 <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{fill: '#475569', fontSize: 11}} width={90} />
-                <Tooltip />
+                <Tooltip formatter={(value: number) => `$${value.toLocaleString()}`} />
                 <Bar dataKey="value" radius={[0, 8, 8, 0]} fill={isJoint ? '#6366f1' : '#10b981'} />
               </BarChart>
             </ResponsiveContainer>

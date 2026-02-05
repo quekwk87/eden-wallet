@@ -2,11 +2,20 @@
 import { createClient } from '@supabase/supabase-js';
 
 const getKeys = () => {
-  // Use Vercel / Vite environment variables
-  // Note: Vite typically uses import.meta.env, but the provided vite.config.ts
-  // maps process.env for compatibility.
-  const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_ANON_KEY;
+  let env: any = {};
+  try {
+    // Check for process.env or standard global access
+    if (typeof process !== 'undefined' && process.env) {
+      env = process.env;
+    } else if ((window as any).process?.env) {
+      env = (window as any).process.env;
+    }
+  } catch (e) {
+    console.warn("Environment access restricted.");
+  }
+
+  const url = env.SUPABASE_URL || '';
+  const key = env.SUPABASE_ANON_KEY || '';
 
   const isValidUrl = (u: any) => typeof u === 'string' && u.startsWith('https://');
   const isValidKey = (k: any) => typeof k === 'string' && k.length > 20;
@@ -19,18 +28,8 @@ const getKeys = () => {
 
 const { url, key } = getKeys();
 
-// Only create a real client if valid keys exist in the environment
 export const isSupabaseConfigured = !!(url && key);
 
 export const supabase = isSupabaseConfigured 
   ? createClient(url, key)
   : null;
-
-export const getDebugConfig = () => {
-  const keys = getKeys();
-  return {
-    url: keys.url || 'Missing SUPABASE_URL in Environment',
-    keySuffix: keys.key ? `...${keys.key.slice(-8)}` : 'Missing SUPABASE_ANON_KEY in Environment',
-    isConfigured: isSupabaseConfigured
-  };
-};

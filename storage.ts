@@ -1,5 +1,5 @@
 
-import { Transaction, Ledger, WorkspaceSettings, CategoryMap, AccountConfig } from './types';
+import { Transaction, Ledger, WorkspaceSettings, CategoryMap, AccountConfig, SystemAccountType } from './types';
 import { supabase, isSupabaseConfigured } from './supabase';
 
 const LOCAL_STORAGE_KEY = 'eden_wallet_data';
@@ -7,9 +7,6 @@ const LOCAL_SETTINGS_KEY = 'eden_wallet_settings';
 const SHARED_USER_ID = '00000000-0000-0000-0000-000000000000';
 
 export const dataStorage = {
-  /**
-   * Transactions Logic
-   */
   async getTransactions(ledger: Ledger): Promise<Transaction[]> {
     if (isSupabaseConfigured && supabase) {
       try {
@@ -25,7 +22,7 @@ export const dataStorage = {
           return data;
         }
       } catch (e) {
-        console.error("Cloud Transaction Fetch Failed:", e);
+        console.error("Cloud Fetch Failed:", e);
       }
     }
     return JSON.parse(localStorage.getItem(`${LOCAL_STORAGE_KEY}_${ledger}`) || '[]');
@@ -56,20 +53,15 @@ export const dataStorage = {
     return true;
   },
 
-  /**
-   * Settings & Master Lists Logic (Categories & Account Labels)
-   */
   async getSettings(ledger: Ledger): Promise<WorkspaceSettings | null> {
     if (isSupabaseConfigured && supabase) {
       try {
-        // Fetch Categories
         const { data: catData, error: catError } = await supabase
           .from('categories')
           .select('name, sub_categories')
           .eq('user_id', SHARED_USER_ID)
           .eq('ledger', ledger);
 
-        // Fetch Labels
         const { data: labelData, error: labelError } = await supabase
           .from('account_labels')
           .select('key, label, color')
@@ -83,17 +75,14 @@ export const dataStorage = {
           const accountConfigs: Record<string, AccountConfig> = {};
           labelData.forEach(l => accountConfigs[l.key] = { label: l.label, color: l.color, description: "" });
 
-          const settings: WorkspaceSettings = {
+          return {
             categories,
             accountConfigs,
-            defaultAccountType: labelData[0]?.key || 'OWN_EXPENSE'
+            defaultAccountType: labelData[0]?.key || SystemAccountType.OWN_EXPENSE
           };
-
-          localStorage.setItem(`${LOCAL_SETTINGS_KEY}_${ledger}`, JSON.stringify(settings));
-          return settings;
         }
       } catch (e) {
-        console.error("Cloud Settings Fetch Error:", e);
+        console.error("Settings Sync Error:", e);
       }
     }
     const local = localStorage.getItem(`${LOCAL_SETTINGS_KEY}_${ledger}`);
@@ -101,16 +90,11 @@ export const dataStorage = {
   },
 
   async saveSettings(settings: WorkspaceSettings, ledger: Ledger): Promise<void> {
-    // 1. Save Locally for instant update
     localStorage.setItem(`${LOCAL_SETTINGS_KEY}_${ledger}`, JSON.stringify(settings));
 
-    // 2. Sync to Cloud
     if (isSupabaseConfigured && supabase) {
       try {
-        // --- Sync Categories ---
-        // Step A: Clear existing categories for this ledger
         await supabase.from('categories').delete().eq('user_id', SHARED_USER_ID).eq('ledger', ledger);
-        // Step B: Insert current master list
         const categoryInserts = Object.entries(settings.categories).map(([name, subs]) => ({
           user_id: SHARED_USER_ID,
           ledger,
@@ -119,10 +103,7 @@ export const dataStorage = {
         }));
         await supabase.from('categories').insert(categoryInserts);
 
-        // --- Sync Labels ---
-        // Step A: Clear existing labels
         await supabase.from('account_labels').delete().eq('user_id', SHARED_USER_ID).eq('ledger', ledger);
-        // Step B: Insert current labels
         const labelInserts = Object.entries(settings.accountConfigs).map(([key, cfg]) => ({
           user_id: SHARED_USER_ID,
           ledger,
@@ -131,9 +112,8 @@ export const dataStorage = {
           color: cfg.color
         }));
         await supabase.from('account_labels').insert(labelInserts);
-        
       } catch (e) {
-        console.error("Cloud Master List Sync Failed:", e);
+        console.error("Cloud Master Sync Failed:", e);
       }
     }
   }
