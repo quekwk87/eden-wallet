@@ -1,9 +1,10 @@
 
 import React, { useState } from 'react';
-import { WorkspaceSettings, Ledger, AccountType, AccountConfig } from '../types';
+import { WorkspaceSettings, Ledger, AccountConfig, CategoryMap } from '../types';
 import { COLOR_PALETTE } from '../constants';
 import { dataStorage } from '../storage';
-import { supabase, isSupabaseConfigured, getDebugConfig } from '../supabase';
+import { supabase, isSupabaseConfigured } from '../supabase';
+import CategoryManager from './CategoryManager';
 
 interface SettingsManagerProps {
   settings: WorkspaceSettings;
@@ -19,106 +20,62 @@ const SettingsManager: React.FC<SettingsManagerProps> = ({
   currentLedger 
 }) => {
   const [activeTab, setActiveTab] = useState<'categories' | 'accounts' | 'cloud'>('categories');
-  const [newCategory, setNewCategory] = useState('');
-  const [newSubCategory, setNewSubCategory] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [editingLabelType, setEditingLabelType] = useState<string | null>(null);
   const [testStatus, setTestStatus] = useState<{ type: 'success' | 'error' | 'idle' | 'loading', message: string }>({ type: 'idle', message: '' });
-  const [showSql, setShowSql] = useState(true);
-  
   const [newLabelName, setNewLabelName] = useState('');
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  const saveSettings = async (newSettings: WorkspaceSettings) => {
+    setIsSyncing(true);
+    setSettings(newSettings);
+    await dataStorage.saveSettings(newSettings, currentLedger);
+    setTimeout(() => setIsSyncing(false), 800);
+  };
+
+  const handleUpdateCategories = (newCategories: CategoryMap | ((prev: CategoryMap) => CategoryMap)) => {
+    const categoriesValue = typeof newCategories === 'function' ? newCategories(settings.categories) : newCategories;
+    saveSettings({ ...settings, categories: categoriesValue });
+  };
 
   const testConnection = async () => {
     if (!supabase) {
-      const debug = getDebugConfig();
-      setTestStatus({ 
-        type: 'error', 
-        message: `Environment Variables Missing. Set SUPABASE_URL and SUPABASE_ANON_KEY in Vercel settings.` 
-      });
+      setTestStatus({ type: 'error', message: `Environment Variables Missing. Set SUPABASE_URL and SUPABASE_ANON_KEY.` });
       return;
     }
     setTestStatus({ type: 'loading', message: 'Testing connection...' });
-    
     try {
-      const { error: tError } = await supabase.from('transactions').select('id').limit(1);
-      if (tError) {
-        if (tError.code === '42P01') throw new Error("Table 'transactions' not found. Run the SQL script below.");
-        if (tError.code === '42501') throw new Error("Permission Denied: Ensure Row Level Security (RLS) policies are added.");
-        throw new Error(tError.message);
-      }
-      setTestStatus({ type: 'success', message: 'Perfect! Application is correctly connected to your Supabase cloud.' });
+      const { error } = await supabase.from('categories').select('count');
+      if (error) throw error;
+      setTestStatus({ type: 'success', message: 'Perfect! Categories and Labels are successfully syncing to your database rows.' });
     } catch (err: any) {
-      setTestStatus({ type: 'error', message: err.message });
+      setTestStatus({ type: 'error', message: err.message || 'Table not found. Please run the SQL script below.' });
     }
   };
 
-  const sqlSchema = `-- 1. Create Transactions Table
-CREATE TABLE transactions (
+  const sqlSchema = `-- MASTER LIST TABLES FOR CATEGORIES AND LABELS
+CREATE TABLE categories (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  created_at TIMESTAMPTZ DEFAULT now(),
-  date DATE NOT NULL,
-  amount DECIMAL(12, 2) NOT NULL,
-  spending_category TEXT NOT NULL,
-  sub_category TEXT,
-  account_type TEXT NOT NULL,
-  remarks TEXT,
   ledger TEXT NOT NULL,
-  user_id UUID NOT NULL
+  name TEXT NOT NULL,
+  sub_categories TEXT[] NOT NULL,
+  user_id UUID DEFAULT '00000000-0000-0000-0000-000000000000'
 );
 
--- 2. Create Workspace Settings Table
-CREATE TABLE workspace_settings (
-  id BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
-  user_id UUID NOT NULL,
+CREATE TABLE account_labels (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   ledger TEXT NOT NULL,
-  settings JSONB NOT NULL,
-  UNIQUE(user_id, ledger)
+  key TEXT NOT NULL,
+  label TEXT NOT NULL,
+  color TEXT NOT NULL,
+  user_id UUID DEFAULT '00000000-0000-0000-0000-000000000000'
 );
 
--- 3. ENABLE RLS
-ALTER TABLE transactions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE workspace_settings ENABLE ROW LEVEL SECURITY;
+-- ENABLE PUBLIC ACCESS FOR SHARED USER
+ALTER TABLE categories ENABLE ROW LEVEL SECURITY;
+ALTER TABLE account_labels ENABLE ROW LEVEL SECURITY;
 
--- 4. CREATE POLICIES (Required for the shared ID used in this app)
-CREATE POLICY "Allow Shared Access" ON transactions
-FOR ALL TO anon USING (user_id = '00000000-0000-0000-0000-000000000000')
-WITH CHECK (user_id = '00000000-0000-0000-0000-000000000000');
-
-CREATE POLICY "Allow Shared Settings" ON workspace_settings
-FOR ALL TO anon USING (user_id = '00000000-0000-0000-0000-000000000000')
-WITH CHECK (user_id = '00000000-0000-0000-0000-000000000000');`;
-
-  const saveSettings = (newSettings: WorkspaceSettings) => {
-    setSettings(newSettings);
-    dataStorage.saveSettings(newSettings, currentLedger);
-  };
-
-  const addCategory = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newCategory.trim() || settings.categories[newCategory]) return;
-    saveSettings({ ...settings, categories: { ...settings.categories, [newCategory.trim()]: [] } });
-    setNewCategory('');
-  };
-
-  const deleteCategory = (cat: string) => {
-    if (window.confirm(`Delete "${cat}"?`)) {
-      const { [cat]: _, ...rest } = settings.categories;
-      saveSettings({ ...settings, categories: rest });
-      if (selectedCategory === cat) setSelectedCategory(null);
-    }
-  };
-
-  const addSubCategory = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedCategory || !newSubCategory.trim()) return;
-    if (settings.categories[selectedCategory].includes(newSubCategory.trim())) return;
-    saveSettings({ ...settings, categories: { ...settings.categories, [selectedCategory]: [...settings.categories[selectedCategory], newSubCategory.trim()] } });
-    setNewSubCategory('');
-  };
-
-  const deleteSubCategory = (cat: string, sub: string) => {
-    saveSettings({ ...settings, categories: { ...settings.categories, [cat]: settings.categories[cat].filter(s => s !== sub) } });
-  };
+CREATE POLICY "Allow Public Categories" ON categories FOR ALL TO anon USING (user_id = '00000000-0000-0000-0000-000000000000');
+CREATE POLICY "Allow Public Labels" ON account_labels FOR ALL TO anon USING (user_id = '00000000-0000-0000-0000-000000000000');`;
 
   const updateAccountField = (type: string, field: keyof AccountConfig, value: string) => {
     saveSettings({ ...settings, accountConfigs: { ...settings.accountConfigs, [type]: { ...settings.accountConfigs[type], [field]: value } } });
@@ -128,7 +85,7 @@ WITH CHECK (user_id = '00000000-0000-0000-0000-000000000000');`;
     e.preventDefault();
     if (!newLabelName.trim()) return;
     const newId = `USER_${Date.now()}`;
-    saveSettings({ ...settings, accountConfigs: { ...settings.accountConfigs, [newId]: { label: newLabelName.trim(), color: COLOR_PALETTE[Math.floor(Math.random() * COLOR_PALETTE.length)], description: "Custom label" } } });
+    saveSettings({ ...settings, accountConfigs: { ...settings.accountConfigs, [newId]: { label: newLabelName.trim(), color: COLOR_PALETTE[Math.floor(Math.random() * COLOR_PALETTE.length)], description: "" } } });
     setNewLabelName('');
   };
 
@@ -143,52 +100,21 @@ WITH CHECK (user_id = '00000000-0000-0000-0000-000000000000');`;
 
   return (
     <div className="space-y-6">
-      <div className="flex border-b border-slate-200">
-        <button onClick={() => setActiveTab('categories')} className={`px-6 py-4 font-bold text-sm ${activeTab === 'categories' ? `border-b-2 border-${themeColor}-600 text-${themeColor}-700` : 'text-slate-500'}`}>Categories</button>
-        <button onClick={() => setActiveTab('accounts')} className={`px-6 py-4 font-bold text-sm ${activeTab === 'accounts' ? `border-b-2 border-${themeColor}-600 text-${themeColor}-700` : 'text-slate-500'}`}>Labels</button>
-        <button onClick={() => setActiveTab('cloud')} className={`px-6 py-4 font-bold text-sm ${activeTab === 'cloud' ? `border-b-2 border-amber-600 text-amber-700` : 'text-slate-500'}`}>Cloud Sync ✨</button>
+      <div className="flex items-center justify-between border-b border-slate-200">
+        <div className="flex">
+          <button onClick={() => setActiveTab('categories')} className={`px-6 py-4 font-bold text-sm ${activeTab === 'categories' ? `border-b-2 border-${themeColor}-600 text-${themeColor}-700` : 'text-slate-500'}`}>Master Categories</button>
+          <button onClick={() => setActiveTab('accounts')} className={`px-6 py-4 font-bold text-sm ${activeTab === 'accounts' ? `border-b-2 border-${themeColor}-600 text-${themeColor}-700` : 'text-slate-500'}`}>Account Labels</button>
+          <button onClick={() => setActiveTab('cloud')} className={`px-6 py-4 font-bold text-sm ${activeTab === 'cloud' ? `border-b-2 border-amber-600 text-amber-700` : 'text-slate-500'}`}>Cloud Sync ✨</button>
+        </div>
+        {isSyncing && (
+          <div className="pr-4 flex items-center gap-2 text-[10px] font-black text-slate-400 uppercase tracking-widest animate-pulse">
+            <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+            Syncing Master Lists...
+          </div>
+        )}
       </div>
 
-      {activeTab === 'categories' && (
-        <div className="space-y-6">
-          {selectedCategory ? (
-            <div className="space-y-6">
-              <button onClick={() => setSelectedCategory(null)} className="flex items-center gap-2 text-slate-500 font-bold hover:text-slate-800 transition-colors">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" /></svg>
-                Back to Categories
-              </button>
-              <h3 className="text-2xl font-black text-slate-800">{selectedCategory}</h3>
-              <form onSubmit={addSubCategory} className="flex gap-2">
-                <input type="text" value={newSubCategory} onChange={(e) => setNewSubCategory(e.target.value)} className="flex-1 px-4 py-3 bg-white border border-slate-200 rounded-xl outline-none" placeholder="Add sub-category..." />
-                <button type="submit" className={`px-6 py-3 bg-${themeColor}-600 text-white font-bold rounded-xl`}>Add</button>
-              </form>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                {settings.categories[selectedCategory].map(sub => (
-                  <div key={sub} className="bg-white p-4 rounded-xl border border-slate-200 flex items-center justify-between group">
-                    <span className="font-semibold text-slate-700">{sub}</span>
-                    <button onClick={() => deleteSubCategory(selectedCategory, sub)} className="text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg></button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : (
-            <>
-              <form onSubmit={addCategory} className="flex gap-2 bg-white p-6 rounded-3xl border border-slate-200">
-                <input type="text" value={newCategory} onChange={(e) => setNewCategory(e.target.value)} className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none" placeholder="New Category (e.g. Health)..." />
-                <button type="submit" className={`px-8 py-3 bg-${themeColor}-600 text-white font-bold rounded-xl`}>Create</button>
-              </form>
-              <div className="space-y-3">
-                {Object.keys(settings.categories).map(cat => (
-                  <div key={cat} onClick={() => setSelectedCategory(cat)} className="bg-white px-6 py-4 rounded-2xl border border-slate-200 flex items-center justify-between cursor-pointer group hover:border-slate-400 transition-all">
-                    <h4 className="font-bold text-slate-800">{cat}</h4>
-                    <button onClick={(e) => { e.stopPropagation(); deleteCategory(cat); }} className="text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-all"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
-      )}
+      {activeTab === 'categories' && <CategoryManager categories={settings.categories} setCategories={handleUpdateCategories} themeColor={themeColor} />}
 
       {activeTab === 'accounts' && (
         <div className="space-y-6">
@@ -213,7 +139,6 @@ WITH CHECK (user_id = '00000000-0000-0000-0000-000000000000');`;
                 <button type="submit" className={`px-8 py-3 bg-${themeColor}-600 text-white font-bold rounded-xl`}>Add</button>
               </form>
               <div className="space-y-3">
-                {/* Fix: Explicitly cast Object.entries to ensure config is treated as AccountConfig instead of unknown */}
                 {(Object.entries(settings.accountConfigs) as [string, AccountConfig][]).map(([type, config]) => (
                   <div key={type} onClick={() => setEditingLabelType(type)} className="bg-white px-6 py-4 rounded-2xl border border-slate-200 flex items-center justify-between cursor-pointer hover:border-slate-400">
                     <div className="flex items-center gap-4">
@@ -232,27 +157,18 @@ WITH CHECK (user_id = '00000000-0000-0000-0000-000000000000');`;
       {activeTab === 'cloud' && (
         <div className="space-y-6">
           <div className={`p-6 rounded-3xl border ${isSupabaseConfigured ? 'bg-emerald-50 border-emerald-100 text-emerald-800' : 'bg-amber-50 border-amber-100 text-amber-800'}`}>
-            <h3 className="text-lg font-black mb-1 flex items-center gap-2">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
-              {isSupabaseConfigured ? 'Environment Keys Detected' : 'No Keys Detected'}
-            </h3>
-            <p className="text-sm opacity-90">
-              {isSupabaseConfigured 
-                ? "Your app is pulling Supabase keys from Vercel Environment Variables. This is secure and ready for use."
-                : "You must set SUPABASE_URL and SUPABASE_ANON_KEY in your Vercel Project Settings for cloud sync to work."}
-            </p>
-            <button onClick={testConnection} className="mt-4 px-6 py-2 bg-white/50 hover:bg-white/80 rounded-xl text-sm font-bold transition-all">Test Database Connection</button>
+            <h3 className="text-lg font-black mb-1 flex items-center gap-2">Cloud Configuration</h3>
+            <p className="text-sm opacity-90">To sync Categories and Labels, you must create the <code>categories</code> and <code>account_labels</code> tables in Supabase.</p>
+            <button onClick={testConnection} className="mt-4 px-6 py-2 bg-white/50 hover:bg-white/80 rounded-xl text-sm font-bold transition-all">Check Connection</button>
           </div>
-
           {testStatus.type !== 'idle' && (
             <div className={`p-4 rounded-2xl border text-sm font-medium ${testStatus.type === 'error' ? 'bg-rose-50 border-rose-200 text-rose-700' : 'bg-emerald-50 border-emerald-200 text-emerald-700'}`}>
               <p>{testStatus.message}</p>
             </div>
           )}
-
           <div className="bg-slate-900 text-slate-300 p-6 rounded-3xl overflow-hidden relative group">
             <div className="flex items-center justify-between mb-4">
-              <h4 className="text-xs font-black uppercase tracking-widest text-slate-500">Required Supabase SQL</h4>
+              <h4 className="text-xs font-black uppercase tracking-widest text-slate-500">Master List Tables SQL</h4>
               <button onClick={() => { navigator.clipboard.writeText(sqlSchema); alert('SQL Copied!'); }} className="text-[10px] bg-slate-800 px-3 py-1 rounded-lg hover:bg-slate-700">Copy Script</button>
             </div>
             <pre className="text-[11px] font-mono leading-relaxed overflow-x-auto whitespace-pre-wrap">{sqlSchema}</pre>
