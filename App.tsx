@@ -1,6 +1,5 @@
 
 import React, { useState, useEffect } from 'react';
-// Fixed: Removed non-existent AccountType export from imports to resolve build error
 import { Transaction, AppTab, WorkspaceSettings, Ledger, SystemAccountType } from './types';
 import TransactionForm from './components/TransactionForm';
 import TransactionList from './components/TransactionList';
@@ -8,7 +7,6 @@ import AnalyticsDashboard from './components/AnalyticsDashboard';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
 import SettingsManager from './components/SettingsManager';
-import SmartAdd from './components/SmartAdd';
 import { DEFAULT_SPENDING_CATEGORIES, ACCOUNT_CONFIG } from './constants';
 import { dataStorage } from './storage';
 import { isSupabaseConfigured } from './supabase';
@@ -17,7 +15,8 @@ const App: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<AppTab>('add');
   const [currentLedger, setCurrentLedger] = useState<Ledger>(Ledger.PERSONAL);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [personalTransactions, setPersonalTransactions] = useState<Transaction[]>([]);
+  const [jointTransactions, setJointTransactions] = useState<Transaction[]>([]);
   
   const [settings, setSettings] = useState<WorkspaceSettings>({
     categories: DEFAULT_SPENDING_CATEGORIES,
@@ -31,12 +30,11 @@ const App: React.FC = () => {
   const fetchData = async () => {
     setLoading(true);
     
-    // Load settings first so forms have the correct categories
+    // Load settings for the current workspace
     const savedSettings = await dataStorage.getSettings(currentLedger);
     if (savedSettings) {
       setSettings(savedSettings);
     } else {
-      // If no settings found (new project), use defaults
       setSettings({
         categories: DEFAULT_SPENDING_CATEGORIES,
         accountConfigs: ACCOUNT_CONFIG,
@@ -44,9 +42,12 @@ const App: React.FC = () => {
       });
     }
 
-    // Then load transactions
-    const txs = await dataStorage.getTransactions(currentLedger);
-    setTransactions(txs);
+    // Load transactions for BOTH ledgers to support cross-ledger analytics
+    const pTxs = await dataStorage.getTransactions(Ledger.PERSONAL);
+    const jTxs = await dataStorage.getTransactions(Ledger.JOINT);
+    
+    setPersonalTransactions(pTxs);
+    setJointTransactions(jTxs);
     
     setLoading(false);
   };
@@ -57,17 +58,15 @@ const App: React.FC = () => {
 
   const handleAddTransaction = async (t: Omit<Transaction, 'id'>) => {
     await dataStorage.saveTransaction(t, currentLedger);
-    // Refresh history
-    const txs = await dataStorage.getTransactions(currentLedger);
-    setTransactions(txs);
+    // Refresh both sets of data
+    fetchData();
     setActiveTab('history');
   };
 
   const handleDelete = async (id: string) => {
     if (window.confirm('Delete this entry?')) {
       await dataStorage.deleteTransaction(id, currentLedger);
-      const txs = await dataStorage.getTransactions(currentLedger);
-      setTransactions(txs);
+      fetchData();
     }
   };
 
@@ -78,6 +77,8 @@ const App: React.FC = () => {
 
   const isJoint = currentLedger === Ledger.JOINT;
   const themeColor = isJoint ? 'indigo' : 'emerald';
+  
+  const currentTransactions = isJoint ? jointTransactions : personalTransactions;
 
   return (
     <div className="flex h-screen overflow-hidden bg-slate-50">
@@ -92,22 +93,23 @@ const App: React.FC = () => {
       
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
         <Header 
-          title={isJoint ? 'Joint Ledger' : 'Personal Ledger'} 
+          title={isJoint ? 'Joint' : 'Personal'} 
           toggleSidebar={() => setIsSidebarOpen(true)} 
-          currentLedger={currentLedger} 
+          currentLedger={currentLedger}
+          setCurrentLedger={setCurrentLedger}
         />
         
         {!isSupabaseConfigured && (
-          <div className="bg-amber-50 border-b border-amber-100 px-8 py-2 flex items-center justify-between">
+          <div className="bg-amber-50 border-b border-amber-100 px-4 md:px-8 py-1.5 flex items-center justify-between">
             <p className="text-[10px] font-bold text-amber-700 uppercase tracking-widest flex items-center gap-2">
-              <span className="w-2 h-2 bg-amber-400 rounded-full animate-pulse"></span>
-              Offline Mode: Data saved to this browser only.
+              <span className="w-1.5 h-1.5 bg-amber-400 rounded-full animate-pulse"></span>
+              Offline Mode: Data saved locally
             </p>
             <button 
               onClick={() => setActiveTab('settings')}
               className="text-[10px] font-black text-amber-800 underline uppercase tracking-widest"
             >
-              Setup Cloud Sync
+              Sync Cloud
             </button>
           </div>
         )}
@@ -116,35 +118,58 @@ const App: React.FC = () => {
           <div className="max-w-6xl mx-auto">
             {loading ? (
               <div className="flex flex-col items-center justify-center h-64 gap-4">
-                <div className={`animate-spin h-10 w-10 border-4 border-${themeColor}-500 border-t-transparent rounded-full`}></div>
-                <p className="text-sm font-medium text-slate-400">Loading your ledger...</p>
+                <div className={`animate-spin h-8 w-8 border-4 border-${themeColor}-500 border-t-transparent rounded-full`}></div>
+                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Updating Ledger...</p>
               </div>
             ) : (
               <>
                 {activeTab === 'add' && (
-                  <div className="max-w-2xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                  <div className="max-w-2xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
                     <section className="bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-slate-200">
-                      <h2 className="text-lg font-bold mb-6 flex items-center gap-2 text-slate-800">
-                        <div className={`w-8 h-8 bg-${themeColor}-500 rounded-lg flex items-center justify-center text-white`}>
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-                        </div>
-                        Smart Add
-                      </h2>
-                      <SmartAdd categories={settings.categories} onAdd={handleAddTransaction} currentLedger={currentLedger} accountConfigs={settings.accountConfigs} />
-                    </section>
-                    <section className="bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-slate-200">
-                      <h2 className="text-lg font-bold mb-6 flex items-center gap-2"><span className="w-2 h-6 bg-slate-200 rounded-full"></span>Manual Entry</h2>
-                      <TransactionForm onSubmit={handleAddTransaction} categories={settings.categories} themeColor={themeColor} accountConfigs={settings.accountConfigs} defaultAccountType={settings.defaultAccountType} />
+                      <div className="flex items-center justify-between mb-6">
+                        <h2 className="text-lg font-bold flex items-center gap-2 text-slate-800">
+                          <div className={`w-8 h-8 bg-${themeColor}-500 rounded-lg flex items-center justify-center text-white`}>
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 4v16m8-8H4" /></svg>
+                          </div>
+                          Add Entry
+                        </h2>
+                        <span className="text-[10px] font-black text-slate-300 uppercase tracking-[0.2em]">{currentLedger}</span>
+                      </div>
+                      <TransactionForm 
+                        onSubmit={handleAddTransaction} 
+                        categories={settings.categories} 
+                        themeColor={themeColor} 
+                        accountConfigs={settings.accountConfigs} 
+                        defaultAccountType={settings.defaultAccountType} 
+                      />
                     </section>
                   </div>
                 )}
                 {activeTab === 'history' && (
                   <section className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
-                    <TransactionList transactions={transactions} onDelete={handleDelete} onEdit={setEditingTransaction} accountConfigs={settings.accountConfigs} />
+                    <TransactionList 
+                      transactions={currentTransactions} 
+                      onDelete={handleDelete} 
+                      onEdit={setEditingTransaction} 
+                      accountConfigs={settings.accountConfigs} 
+                    />
                   </section>
                 )}
-                {activeTab === 'analytics' && <AnalyticsDashboard transactions={transactions} currentLedger={currentLedger} />}
-                {activeTab === 'settings' && <SettingsManager settings={settings} setSettings={handleUpdateSettings} themeColor={themeColor} currentLedger={currentLedger} />}
+                {activeTab === 'analytics' && (
+                  <AnalyticsDashboard 
+                    personalTransactions={personalTransactions}
+                    jointTransactions={jointTransactions}
+                    currentLedger={currentLedger} 
+                  />
+                )}
+                {activeTab === 'settings' && (
+                  <SettingsManager 
+                    settings={settings} 
+                    setSettings={handleUpdateSettings} 
+                    themeColor={themeColor} 
+                    currentLedger={currentLedger} 
+                  />
+                )}
               </>
             )}
           </div>
