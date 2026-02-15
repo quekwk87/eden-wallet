@@ -63,11 +63,23 @@ const App: React.FC = () => {
     setActiveTab('history');
   };
 
+  const handleUpdateTransaction = async (t: Transaction) => {
+    await dataStorage.saveTransaction(t, currentLedger);
+    fetchData();
+    setEditingTransaction(null);
+    setActiveTab('history');
+  };
+  
   const handleDelete = async (id: string) => {
     if (window.confirm('Delete this entry?')) {
       await dataStorage.deleteTransaction(id, currentLedger);
       fetchData();
     }
+  };
+
+  const handleEdit = (t: Transaction) => {
+    setEditingTransaction(t);
+    setActiveTab('add');
   };
 
   const handleUpdateSettings = async (newSettings: WorkspaceSettings) => {
@@ -123,46 +135,52 @@ const App: React.FC = () => {
               </div>
             ) : (
               <>
-                {activeTab === 'add' && (
+                {(activeTab === 'add' || editingTransaction) && (
                   <div className="max-w-2xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
                     <section className="bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-slate-200">
                       <div className="flex items-center justify-between mb-6">
                         <h2 className="text-lg font-bold flex items-center gap-2 text-slate-800">
                           <div className={`w-8 h-8 bg-${themeColor}-500 rounded-lg flex items-center justify-center text-white`}>
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 4v16m8-8H4" /></svg>
+                            {editingTransaction ? 
+                              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002 2v-5M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" /></svg>
+                              : <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 4v16m8-8H4" /></svg>
+                            }
                           </div>
-                          Add Entry
+                          {editingTransaction ? 'Edit' : 'Add'} Entry
                         </h2>
                         <span className="text-[10px] font-black text-slate-300 uppercase tracking-[0.2em]">{currentLedger}</span>
                       </div>
                       <TransactionForm 
                         onSubmit={handleAddTransaction} 
+                        onUpdate={handleUpdateTransaction}
                         categories={settings.categories} 
                         themeColor={themeColor} 
                         accountConfigs={settings.accountConfigs} 
-                        defaultAccountType={settings.defaultAccountType} 
+                        defaultAccountType={settings.defaultAccountType}
+                        transaction={editingTransaction}
+                        onCancel={() => setEditingTransaction(null)}
                       />
                     </section>
                   </div>
                 )}
-                {activeTab === 'history' && (
+                {activeTab === 'history' && !editingTransaction && (
                   <section className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
                     <TransactionList 
                       transactions={currentTransactions} 
                       onDelete={handleDelete} 
-                      onEdit={setEditingTransaction} 
+                      onEdit={handleEdit} 
                       accountConfigs={settings.accountConfigs} 
                     />
                   </section>
                 )}
-                {activeTab === 'analytics' && (
+                {activeTab === 'analytics' && !editingTransaction && (
                   <AnalyticsDashboard 
                     personalTransactions={personalTransactions}
                     jointTransactions={jointTransactions}
                     currentLedger={currentLedger} 
                   />
                 )}
-                {activeTab === 'settings' && (
+                {activeTab === 'settings' && !editingTransaction && (
                   <SettingsManager 
                     settings={settings} 
                     setSettings={handleUpdateSettings} 

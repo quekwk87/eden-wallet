@@ -4,25 +4,20 @@ import type { Transaction, CategoryMap, AccountConfig } from '../types';
 import { getLocalDateString } from '../utils';
 
 interface TransactionFormProps {
-  initialData?: Transaction;
+  transaction?: Transaction | null;
   onCancel?: () => void;
   categories: CategoryMap;
   themeColor?: string;
   accountConfigs: Record<string, AccountConfig>;
   defaultAccountType: string;
-  onSubmit: (t: { 
-    date: string; 
-    amount: number; 
-    spending_category: string; 
-    sub_category: string; 
-    account_type: string;
-    remarks: string;
-  }) => void;
+  onSubmit: (t: Omit<Transaction, 'id'>) => void;
+  onUpdate: (t: Transaction) => void;
 }
 
 const TransactionForm: React.FC<TransactionFormProps> = ({ 
-  onSubmit, 
-  initialData, 
+  onSubmit,
+  onUpdate, 
+  transaction, 
   onCancel, 
   categories, 
   themeColor = 'emerald',
@@ -32,33 +27,39 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
   const categoryNames = Object.keys(categories);
   const accountEntries = Object.entries(accountConfigs) as [string, AccountConfig][];
   
-  const [amount, setAmount] = useState(initialData?.amount.toString() || '');
-  const [date, setDate] = useState(initialData?.date || getLocalDateString());
-  const [spending_category, setSpendingCategory] = useState(initialData?.spending_category || categoryNames[0] || '');
-  const [sub_category, setSubCategory] = useState(initialData?.sub_category || categories[categoryNames[0]]?.[0] || '');
+  const [amount, setAmount] = useState(transaction?.amount.toString() || '');
+  const [date, setDate] = useState(transaction?.date || getLocalDateString());
+  const [spending_category, setSpendingCategory] = useState(transaction?.spending_category || categoryNames[0] || '');
+  const [sub_category, setSubCategory] = useState(transaction?.sub_category || categories[categoryNames[0]]?.[0] || '');
   
-  const initialAccount = (initialData?.account_type && accountConfigs[initialData.account_type])
-    ? initialData.account_type
+  const initialAccount = (transaction?.account_type && accountConfigs[transaction.account_type])
+    ? transaction.account_type
     : (accountConfigs[defaultAccountType] ? defaultAccountType : accountEntries[0]?.[0] || '');
     
   const [selectedAccount, setSelectedAccount] = useState<string>(initialAccount);
-  const [remarks, setRemarks] = useState(initialData?.remarks || '');
+  const [remarks, setRemarks] = useState(transaction?.remarks || '');
 
   useEffect(() => {
-    if (initialData) {
-      setAmount(initialData.amount.toString());
-      setDate(initialData.date);
-      setSpendingCategory(initialData.spending_category);
-      setSubCategory(initialData.sub_category);
-      setSelectedAccount(accountConfigs[initialData.account_type] ? initialData.account_type : (accountEntries[0]?.[0] || ''));
-      setRemarks(initialData.remarks);
+    if (transaction) {
+      setAmount(transaction.amount.toString());
+      setDate(transaction.date);
+      setSpendingCategory(transaction.spending_category);
+      setSubCategory(transaction.sub_category);
+      setSelectedAccount(accountConfigs[transaction.account_type] ? transaction.account_type : (accountEntries[0]?.[0] || ''));
+      setRemarks(transaction.remarks);
     } else {
+      // Reset form for new entry
+      setAmount('');
+      setDate(getLocalDateString());
+      setSpendingCategory(categoryNames[0] || '');
+      setSubCategory(categories[categoryNames[0]]?.[0] || '');
       setSelectedAccount(accountConfigs[defaultAccountType] ? defaultAccountType : (accountEntries[0]?.[0] || ''));
+      setRemarks('');
     }
-  }, [initialData, defaultAccountType, accountConfigs]);
+  }, [transaction, defaultAccountType, accountConfigs, categories]);
 
   useEffect(() => {
-    if (!initialData || spending_category !== initialData.spending_category) {
+    if (!transaction || spending_category !== transaction.spending_category) {
       const availableSubs = categories[spending_category] || [];
       const firstSub = availableSubs[0] || '';
       setSubCategory(firstSub);
@@ -69,19 +70,25 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
     e.preventDefault();
     if (!amount || !spending_category || !selectedAccount) return;
 
-    onSubmit({
-      amount: parseFloat(amount),
-      spending_category,
-      sub_category,
-      date,
-      account_type: selectedAccount,
-      remarks,
-    });
-
-    if (!initialData) {
-      setAmount('');
-      setRemarks('');
-      setSelectedAccount(accountConfigs[defaultAccountType] ? defaultAccountType : (accountEntries[0]?.[0] || ''));
+    if (transaction) {
+      onUpdate({
+        id: transaction.id,
+        amount: parseFloat(amount),
+        spending_category,
+        sub_category,
+        date,
+        account_type: selectedAccount,
+        remarks,
+      });
+    } else {
+      onSubmit({
+        amount: parseFloat(amount),
+        spending_category,
+        sub_category,
+        date,
+        account_type: selectedAccount,
+        remarks,
+      });
     }
   };
 
@@ -173,11 +180,11 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
       </div>
 
       <div className="flex gap-3 mt-4">
-        {onCancel && (
+        {transaction && onCancel && (
           <button type="button" onClick={onCancel} className="flex-1 px-4 py-3 border border-slate-200 text-slate-600 font-bold rounded-xl">Cancel</button>
         )}
         <button type="submit" className={`flex-[2] bg-${themeColor}-600 text-white font-bold py-3.5 rounded-xl shadow-lg disabled:opacity-50`} disabled={accountEntries.length === 0}>
-          {initialData ? 'Save Changes' : 'Record Entry'}
+          {transaction ? 'Save Changes' : 'Record Entry'}
         </button>
       </div>
     </form>
