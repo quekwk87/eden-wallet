@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { AccountType, Transaction, CategoryMap, AccountConfig } from '../types';
+import type { Transaction, CategoryMap, AccountConfig } from '../types';
 import { getLocalDateString } from '../utils';
 
 interface TransactionFormProps {
@@ -33,7 +33,6 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
   const accountEntries = Object.entries(accountConfigs) as [string, AccountConfig][];
   
   const [amount, setAmount] = useState(initialData?.amount.toString() || '');
-  // Fix: Use local date string utility
   const [date, setDate] = useState(initialData?.date || getLocalDateString());
   const [spending_category, setSpendingCategory] = useState(initialData?.spending_category || categoryNames[0] || '');
   const [sub_category, setSubCategory] = useState(initialData?.sub_category || categories[categoryNames[0]]?.[0] || '');

@@ -1,7 +1,8 @@
 
 import React, { useState } from 'react';
 import { GoogleGenAI, Type } from "@google/genai";
-import { AccountType, CategoryMap, Transaction, Ledger, AccountConfig } from '../types';
+import { Ledger } from '../types';
+import type { CategoryMap, Transaction, AccountConfig } from '../types';
 import TransactionForm from './TransactionForm';
 import { getLocalDateString } from '../utils';
 
@@ -18,7 +19,7 @@ const SmartAdd: React.FC<SmartAddProps> = ({ categories, onAdd, currentLedger, a
   const [parsedResult, setParsedResult] = useState<Omit<Transaction, 'id'> | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const themeColor = currentLedger === Ledger.JOINT ? 'indigo' : 'emerald';
+  const themeColor = currentLedger === Ledger.PERSONAL ? 'emerald' : 'indigo';
 
   const parseText = async () => {
     if (!inputText.trim()) return;
@@ -28,7 +29,6 @@ const SmartAdd: React.FC<SmartAddProps> = ({ categories, onAdd, currentLedger, a
 
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-      // Fix: Use local date for AI context
       const today = getLocalDateString();
       
       const categoryContext = Object.keys(categories).join(', ');

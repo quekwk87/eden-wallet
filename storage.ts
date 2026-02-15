@@ -1,34 +1,40 @@
-import { Transaction, Ledger, WorkspaceSettings } from './types';
+
+import { Transaction, Ledger, WorkspaceSettings, SystemAccountType } from './types';
 import { supabase, isSupabaseConfigured } from './supabase';
 
 const LOCAL_STORAGE_KEY = 'eden_wallet_data';
+const LOCAL_SETTINGS_KEY = 'eden_wallet_settings';
 const SHARED_USER_ID = '00000000-0000-0000-0000-000000000000';
 
 export const dataStorage = {
+  /**
+   * Transactions Logic
+   */
   async getTransactions(ledger: Ledger): Promise<Transaction[]> {
-    // 1. Try Supabase
     if (isSupabaseConfigured && supabase) {
-      const { data, error } = await supabase
-        .from('transactions')
-        .select('*')
-        .eq('user_id', SHARED_USER_ID)
-        .eq('ledger', ledger)
-        .order('date', { ascending: false });
-      
-      if (error) {
-        console.error(`Supabase Fetch Error (${ledger}):`, error.message);
-      } else if (data) {
-        return data;
+      try {
+        const { data, error } = await supabase
+          .from('transactions')
+          .select('*')
+          .eq('user_id', SHARED_USER_ID)
+          .eq('ledger', ledger)
+          .order('date', { ascending: false });
+        
+        if (!error && data) {
+          localStorage.setItem(`${LOCAL_STORAGE_KEY}_${ledger}`, JSON.stringify(data));
+          return data;
+        }
+      } catch (e) {
+        console.error("Cloud Transaction Fetch Failed:", e);
       }
     }
     
-    // 2. Fallback to local storage
-    const localData = JSON.parse(localStorage.getItem(`${LOCAL_STORAGE_KEY}_${ledger}`) || '[]');
-    return localData;
+    return JSON.parse(localStorage.getItem(`${LOCAL_STORAGE_KEY}_${ledger}`) || '[]');
   },
 
   async saveTransaction(t: Omit<Transaction, 'id'>, ledger: Ledger): Promise<boolean> {
-    // 1. Try Supabase
+    const tempId = crypto.randomUUID();
+    
     if (isSupabaseConfigured && supabase) {
       const { error } = await supabase.from('transactions').insert([{
         ...t,
@@ -36,62 +42,70 @@ export const dataStorage = {
         ledger: ledger
       }]);
       
-      if (error) {
-        console.error("Supabase Save Error:", error.message);
-        // We return false here if we want to force local fallback, 
-        // but logging helps the user see WHY it failed.
-      } else {
-        return true;
-      }
+      if (!error) return true;
     }
 
-    // 2. Fallback to local storage
-    const current = await this.getTransactions(ledger);
-    const newTx = { ...t, id: crypto.randomUUID() };
-    localStorage.setItem(`${LOCAL_STORAGE_KEY}_${ledger}`, JSON.stringify([newTx, ...current]));
+    const current = JSON.parse(localStorage.getItem(`${LOCAL_STORAGE_KEY}_${ledger}`) || '[]');
+    localStorage.setItem(`${LOCAL_STORAGE_KEY}_${ledger}`, JSON.stringify([{ ...t, id: tempId }, ...current]));
     return true;
   },
 
   async deleteTransaction(id: string, ledger: Ledger): Promise<boolean> {
-    // 1. Try Supabase
     if (isSupabaseConfigured && supabase) {
-      const { error } = await supabase.from('transactions').delete().eq('id', id);
-      if (error) {
-        console.error("Supabase Delete Error:", error.message);
-      } else {
-        return true;
-      }
+      await supabase.from('transactions').delete().eq('id', id);
     }
 
-    // 2. Local Storage
-    const current = await this.getTransactions(ledger);
-    const filtered = current.filter(t => t.id !== id);
+    const current = JSON.parse(localStorage.getItem(`${LOCAL_STORAGE_KEY}_${ledger}`) || '[]');
+    const filtered = current.filter((t: any) => t.id !== id);
     localStorage.setItem(`${LOCAL_STORAGE_KEY}_${ledger}`, JSON.stringify(filtered));
     return true;
   },
 
+  /**
+   * Settings & Categories Logic
+   */
   async getSettings(ledger: Ledger): Promise<WorkspaceSettings | null> {
+    const localSettings = localStorage.getItem(`${LOCAL_SETTINGS_KEY}_${ledger}`);
+    const parsedLocal = localSettings ? JSON.parse(localSettings) : null;
+
     if (isSupabaseConfigured && supabase) {
-      const { data, error } = await supabase
-        .from('workspace_settings')
-        .select('settings')
-        .eq('user_id', SHARED_USER_ID)
-        .eq('ledger', ledger)
-        .maybeSingle();
-      
-      if (error) console.error("Supabase Settings Fetch Error:", error.message);
-      if (data) return data.settings;
+      try {
+        const { data, error } = await supabase
+          .from('workspace_settings')
+          .select('settings')
+          .eq('user_id', SHARED_USER_ID)
+          .eq('ledger', ledger)
+          .maybeSingle();
+        
+        if (!error && data?.settings) {
+          localStorage.setItem(`${LOCAL_SETTINGS_KEY}_${ledger}`, JSON.stringify(data.settings));
+          return data.settings;
+        } else if (!error && !data && parsedLocal) {
+          // Sync existing local settings to cloud if cloud is empty
+          await this.saveSettings(parsedLocal, ledger);
+          return parsedLocal;
+        }
+      } catch (e) {
+        console.error("Settings Sync Error:", e);
+      }
     }
-    return null;
+    
+    return parsedLocal;
   },
 
   async saveSettings(settings: WorkspaceSettings, ledger: Ledger): Promise<void> {
+    localStorage.setItem(`${LOCAL_SETTINGS_KEY}_${ledger}`, JSON.stringify(settings));
+
     if (isSupabaseConfigured && supabase) {
       const { error } = await supabase
         .from('workspace_settings')
-        .upsert({ user_id: SHARED_USER_ID, ledger, settings });
+        .upsert({ 
+          user_id: SHARED_USER_ID, 
+          ledger, 
+          settings,
+        }, { onConflict: 'user_id,ledger' });
       
-      if (error) console.error("Supabase Settings Save Error:", error.message);
+      if (error) console.error("Cloud Settings Sync Failed:", error.message);
     }
   }
 };

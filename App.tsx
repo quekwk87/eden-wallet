@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
-import { Transaction, AppTab, WorkspaceSettings, Ledger, AccountType } from './types';
+// Fixed: Removed non-existent AccountType export from imports to resolve build error
+import { Transaction, AppTab, WorkspaceSettings, Ledger, SystemAccountType } from './types';
 import TransactionForm from './components/TransactionForm';
 import TransactionList from './components/TransactionList';
 import AnalyticsDashboard from './components/AnalyticsDashboard';
@@ -17,10 +18,11 @@ const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<AppTab>('add');
   const [currentLedger, setCurrentLedger] = useState<Ledger>(Ledger.PERSONAL);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  
   const [settings, setSettings] = useState<WorkspaceSettings>({
     categories: DEFAULT_SPENDING_CATEGORIES,
     accountConfigs: ACCOUNT_CONFIG,
-    defaultAccountType: AccountType.OWN_EXPENSE
+    defaultAccountType: SystemAccountType.OWN_EXPENSE
   });
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -28,11 +30,24 @@ const App: React.FC = () => {
 
   const fetchData = async () => {
     setLoading(true);
+    
+    // Load settings first so forms have the correct categories
     const savedSettings = await dataStorage.getSettings(currentLedger);
-    if (savedSettings) setSettings(savedSettings);
+    if (savedSettings) {
+      setSettings(savedSettings);
+    } else {
+      // If no settings found (new project), use defaults
+      setSettings({
+        categories: DEFAULT_SPENDING_CATEGORIES,
+        accountConfigs: ACCOUNT_CONFIG,
+        defaultAccountType: SystemAccountType.OWN_EXPENSE
+      });
+    }
 
+    // Then load transactions
     const txs = await dataStorage.getTransactions(currentLedger);
     setTransactions(txs);
+    
     setLoading(false);
   };
 
@@ -42,15 +57,23 @@ const App: React.FC = () => {
 
   const handleAddTransaction = async (t: Omit<Transaction, 'id'>) => {
     await dataStorage.saveTransaction(t, currentLedger);
-    fetchData();
+    // Refresh history
+    const txs = await dataStorage.getTransactions(currentLedger);
+    setTransactions(txs);
     setActiveTab('history');
   };
 
   const handleDelete = async (id: string) => {
     if (window.confirm('Delete this entry?')) {
       await dataStorage.deleteTransaction(id, currentLedger);
-      fetchData();
+      const txs = await dataStorage.getTransactions(currentLedger);
+      setTransactions(txs);
     }
+  };
+
+  const handleUpdateSettings = async (newSettings: WorkspaceSettings) => {
+    setSettings(newSettings);
+    await dataStorage.saveSettings(newSettings, currentLedger);
   };
 
   const isJoint = currentLedger === Ledger.JOINT;
@@ -74,7 +97,6 @@ const App: React.FC = () => {
           currentLedger={currentLedger} 
         />
         
-        {/* Connection Status Banner */}
         {!isSupabaseConfigured && (
           <div className="bg-amber-50 border-b border-amber-100 px-8 py-2 flex items-center justify-between">
             <p className="text-[10px] font-bold text-amber-700 uppercase tracking-widest flex items-center gap-2">
@@ -95,6 +117,7 @@ const App: React.FC = () => {
             {loading ? (
               <div className="flex flex-col items-center justify-center h-64 gap-4">
                 <div className={`animate-spin h-10 w-10 border-4 border-${themeColor}-500 border-t-transparent rounded-full`}></div>
+                <p className="text-sm font-medium text-slate-400">Loading your ledger...</p>
               </div>
             ) : (
               <>
@@ -102,7 +125,7 @@ const App: React.FC = () => {
                   <div className="max-w-2xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
                     <section className="bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-slate-200">
                       <h2 className="text-lg font-bold mb-6 flex items-center gap-2 text-slate-800">
-                        <div className={`w-8 h-8 bg-${themeColor}-500 rounded-xl flex items-center justify-center text-white`}>
+                        <div className={`w-8 h-8 bg-${themeColor}-500 rounded-lg flex items-center justify-center text-white`}>
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
                         </div>
                         Smart Add
@@ -121,7 +144,7 @@ const App: React.FC = () => {
                   </section>
                 )}
                 {activeTab === 'analytics' && <AnalyticsDashboard transactions={transactions} currentLedger={currentLedger} />}
-                {activeTab === 'settings' && <SettingsManager settings={settings} setSettings={async (s) => setSettings(s)} themeColor={themeColor} currentLedger={currentLedger} />}
+                {activeTab === 'settings' && <SettingsManager settings={settings} setSettings={handleUpdateSettings} themeColor={themeColor} currentLedger={currentLedger} />}
               </>
             )}
           </div>

@@ -1,5 +1,6 @@
 
-export enum AccountType {
+// Standard system keys for logic preservation
+export enum SystemAccountType {
   OWN_EXPENSE = 'OWN_EXPENSE',
   OWED_TO_NXQ = 'OWED_TO_NXQ',
   OWED_BY_NXQ = 'OWED_BY_NXQ',
@@ -18,7 +19,7 @@ export interface Transaction {
   amount: number;
   spending_category: string;
   sub_category: string;
-  account_type: AccountType;
+  account_type: string;
   remarks: string;
 }
 
@@ -43,8 +44,8 @@ export interface AccountConfig {
 
 export interface WorkspaceSettings {
   categories: CategoryMap;
-  accountConfigs: Record<AccountType, AccountConfig>;
-  defaultAccountType: AccountType;
+  accountConfigs: Record<string, AccountConfig>;
+  defaultAccountType: string;
 }
 
 export type AppTab = 'add' | 'history' | 'analytics' | 'settings';
