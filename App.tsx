@@ -86,11 +86,17 @@ const App: React.FC = () => {
     setSettings(newSettings);
     await dataStorage.saveSettings(newSettings, currentLedger);
   };
+  
+  const handleCancelEdit = () => {
+    setEditingTransaction(null);
+    setActiveTab('history');
+  }
 
   const isJoint = currentLedger === Ledger.JOINT;
   const themeColor = isJoint ? 'indigo' : 'emerald';
   
   const currentTransactions = isJoint ? jointTransactions : personalTransactions;
+  const showForm = activeTab === 'add' || editingTransaction !== null;
 
   return (
     <div className="flex h-screen overflow-hidden bg-slate-50">
@@ -135,7 +141,7 @@ const App: React.FC = () => {
               </div>
             ) : (
               <>
-                {(activeTab === 'add' || editingTransaction) && (
+                {showForm && (
                   <div className="max-w-2xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
                     <section className="bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-slate-200">
                       <div className="flex items-center justify-between mb-6">
@@ -158,7 +164,7 @@ const App: React.FC = () => {
                         accountConfigs={settings.accountConfigs} 
                         defaultAccountType={settings.defaultAccountType}
                         transaction={editingTransaction}
-                        onCancel={() => setEditingTransaction(null)}
+                        onCancel={handleCancelEdit}
                       />
                     </section>
                   </div>

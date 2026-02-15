@@ -64,7 +64,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
       const firstSub = availableSubs[0] || '';
       setSubCategory(firstSub);
     }
-  }, [spending_category, categories]);
+  }, [spending_category, categories, transaction]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
