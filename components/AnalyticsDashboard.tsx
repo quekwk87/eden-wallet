@@ -20,6 +20,7 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
 }) => {
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
+  const [selectedMonth, setSelectedMonth] = useState<string>('');
 
   const isJointMode = currentLedger === Ledger.JOINT;
   const themeColor = isJointMode ? 'indigo' : 'emerald';
@@ -34,6 +35,38 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
       ].includes(type) || type.startsWith('USER_');
     }
     return true;
+  };
+
+  const monthlySpendingData: MonthlyData[] = useMemo(() => {
+    const dataMap: Record<string, number> = {};
+    transactions.forEach(t => {
+      if (!isPersonalExpense(t.account_type)) return;
+      const date = new Date(t.date);
+      const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      dataMap[key] = (dataMap[key] || 0) + t.amount;
+    });
+    return Object.entries(dataMap)
+      .map(([key, amount]) => {
+        const [year, month] = key.split('-');
+        const date = new Date(parseInt(year), parseInt(month) - 1);
+        const label = date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+        return { sortKey: key, month: label, amount };
+      })
+      .sort((a, b) => a.sortKey.localeCompare(b.sortKey));
+  }, [transactions, isJointMode]);
+
+  const handleMonthChange = (month: string) => {
+    setSelectedMonth(month);
+    if (month) {
+      const [year, monthNum] = month.split('-').map(Number);
+      const firstDay = new Date(year, monthNum - 1, 1);
+      const lastDay = new Date(year, monthNum, 0);
+      setStartDate(firstDay.toISOString().split('T')[0]);
+      setEndDate(lastDay.toISOString().split('T')[0]);
+    } else {
+      setStartDate('');
+      setEndDate('');
+    }
   };
 
   const filteredTransactions = useMemo(() => {
@@ -87,24 +120,6 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
     }, { totalSpent: 0, netNXQ: 0, netNXQWK: 0 });
   }, [filteredTransactions, isJointMode]);
 
-  const monthlySpendingData: MonthlyData[] = useMemo(() => {
-    const dataMap: Record<string, number> = {};
-    transactions.forEach(t => {
-      if (!isPersonalExpense(t.account_type)) return;
-      const date = new Date(t.date);
-      const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-      dataMap[key] = (dataMap[key] || 0) + t.amount;
-    });
-    return Object.entries(dataMap)
-      .map(([key, amount]) => {
-        const [year, month] = key.split('-');
-        const date = new Date(parseInt(year), parseInt(month) - 1);
-        const label = date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-        return { sortKey: key, month: label, amount };
-      })
-      .sort((a, b) => a.sortKey.localeCompare(b.sortKey));
-  }, [transactions, isJointMode]);
-
   const spendingByCategory = useMemo(() => {
     const data: Record<string, number> = {};
     filteredTransactions.forEach(t => {
@@ -146,9 +161,16 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
             <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight">Settlement Center</h3>
           </div>
           <div className="flex items-center gap-2">
-            <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs outline-none focus:ring-1 focus:ring-slate-300" />
-            <span className="text-slate-300 font-bold">→</span>
-            <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs outline-none focus:ring-1 focus:ring-slate-300" />
+            <select 
+              value={selectedMonth} 
+              onChange={(e) => handleMonthChange(e.target.value)} 
+              className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs outline-none focus:ring-1 focus:ring-slate-300"
+            >
+              <option value="">All Time</option>
+              {monthlySpendingData.map(m => (
+                <option key={m.sortKey} value={m.sortKey}>{m.month}</option>
+              ))}
+            </select>
           </div>
         </div>
 
