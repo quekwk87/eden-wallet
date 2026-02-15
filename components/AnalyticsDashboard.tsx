@@ -18,8 +18,6 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
   jointTransactions, 
   currentLedger 
 }) => {
-  const [startDate, setStartDate] = useState<string>('');
-  const [endDate, setEndDate] = useState<string>('');
   const [selectedMonth, setSelectedMonth] = useState<string>('');
 
   const isJointMode = currentLedger === Ledger.JOINT;
@@ -57,25 +55,18 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
 
   const handleMonthChange = (month: string) => {
     setSelectedMonth(month);
-    if (month) {
-      const [year, monthNum] = month.split('-').map(Number);
-      const firstDay = new Date(year, monthNum - 1, 1);
-      const lastDay = new Date(year, monthNum, 0);
-      setStartDate(firstDay.toISOString().split('T')[0]);
-      setEndDate(lastDay.toISOString().split('T')[0]);
-    } else {
-      setStartDate('');
-      setEndDate('');
-    }
   };
 
   const filteredTransactions = useMemo(() => {
+    if (!selectedMonth) {
+      return transactions;
+    }
     return transactions.filter(t => {
-      const matchStart = !startDate || t.date >= startDate;
-      const matchEnd = !endDate || t.date <= endDate;
-      return matchStart && matchEnd;
+      const date = new Date(t.date);
+      const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      return key === selectedMonth;
     });
-  }, [transactions, startDate, endDate]);
+  }, [transactions, selectedMonth]);
 
   /**
    * Specific Settlement Calculations as requested
@@ -87,15 +78,19 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
     const sum = (txs: Transaction[], type: string) => 
       txs.filter(t => t.account_type === type).reduce((acc, t) => acc + t.amount, 0);
 
-    // Filter by date for settlements as well
-    const filterByDate = (txs: Transaction[]) => txs.filter(t => {
-      const matchStart = !startDate || t.date >= startDate;
-      const matchEnd = !endDate || t.date <= endDate;
-      return matchStart && matchEnd;
-    });
+    const filterByMonth = (txs: Transaction[]) => {
+      if (!selectedMonth) {
+        return txs;
+      }
+      return txs.filter(t => {
+        const date = new Date(t.date);
+        const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+        return key === selectedMonth;
+      });
+    };
 
-    const pTxs = filterByDate(personalTransactions);
-    const jTxs = filterByDate(jointTransactions);
+    const pTxs = filterByMonth(personalTransactions);
+    const jTxs = filterByMonth(jointTransactions);
 
     const qwkOweNxqwk = (sum(pTxs, SystemAccountType.OWED_TO_NXQWK) + sum(jTxs, SystemAccountType.OWED_TO_NXQWK)) - 
                          (sum(pTxs, SystemAccountType.OWED_BY_NXQWK) + sum(jTxs, SystemAccountType.OWED_BY_NXQWK));
@@ -105,7 +100,7 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
     const nxqOweQwk = sum(pTxs, SystemAccountType.OWED_BY_NXQ) - sum(pTxs, SystemAccountType.OWED_TO_NXQ);
 
     return { qwkOweNxqwk, nxqOweNxqwk, nxqOweQwk };
-  }, [personalTransactions, jointTransactions, startDate, endDate]);
+  }, [personalTransactions, jointTransactions, selectedMonth]);
 
   const stats: Balances = useMemo(() => {
     return filteredTransactions.reduce((acc, t) => {
