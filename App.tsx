@@ -52,8 +52,34 @@ const App: React.FC = () => {
     setLoading(false);
   };
 
+  // Silently re-fetch settings from Supabase without triggering the full loading spinner.
+  // This ensures edits always start from the latest cloud state, preventing stale-state
+  // overwrites when the app is open on multiple devices (desktop + mobile).
+  const refreshSettings = async () => {
+    const savedSettings = await dataStorage.getSettings(currentLedger);
+    if (savedSettings) setSettings(savedSettings);
+  };
+
   useEffect(() => {
     fetchData();
+  }, [currentLedger]);
+
+  // Re-fetch fresh settings whenever the user opens the settings tab,
+  // so any categories added on another device are loaded before editing.
+  useEffect(() => {
+    if (activeTab === 'settings') {
+      refreshSettings();
+    }
+  }, [activeTab]);
+
+  // Re-fetch when the app regains focus (e.g. switching back from another tab or
+  // bringing a mobile browser back to the foreground).
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden) refreshSettings();
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [currentLedger]);
 
   const handleAddTransaction = async (t: Omit<Transaction, 'id'>) => {
