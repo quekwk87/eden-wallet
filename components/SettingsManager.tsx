@@ -37,6 +37,14 @@ const SettingsManager: React.FC<SettingsManagerProps> = ({
     saveSettings({ ...settings, categories: categoriesValue });
   };
 
+  const handleSetDefaultCategory = (cat: string) => {
+    saveSettings({ ...settings, defaultCategory: cat });
+  };
+
+  const handleSetDefaultSubCategory = (cat: string, sub: string) => {
+    saveSettings({ ...settings, defaultSubCategories: { ...(settings.defaultSubCategories || {}), [cat]: sub } });
+  };
+
   const testConnection = async () => {
     if (!supabase) {
       setTestStatus({ 
@@ -134,7 +142,15 @@ WITH CHECK (user_id = '00000000-0000-0000-0000-000000000000');`;
       </div>
 
       {activeTab === 'categories' && (
-        <CategoryManager categories={settings.categories} setCategories={handleUpdateCategories} themeColor={themeColor} />
+        <CategoryManager
+          categories={settings.categories}
+          setCategories={handleUpdateCategories}
+          defaultCategory={settings.defaultCategory || ''}
+          onSetDefaultCategory={handleSetDefaultCategory}
+          defaultSubCategories={settings.defaultSubCategories || {}}
+          onSetDefaultSubCategory={handleSetDefaultSubCategory}
+          themeColor={themeColor}
+        />
       )}
 
       {activeTab === 'accounts' && (

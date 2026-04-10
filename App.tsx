@@ -21,7 +21,9 @@ const App: React.FC = () => {
   const [settings, setSettings] = useState<WorkspaceSettings>({
     categories: DEFAULT_SPENDING_CATEGORIES,
     accountConfigs: ACCOUNT_CONFIG,
-    defaultAccountType: SystemAccountType.OWN_EXPENSE
+    defaultAccountType: SystemAccountType.OWN_EXPENSE,
+    defaultCategory: '',
+    defaultSubCategories: {},
   });
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -38,7 +40,9 @@ const App: React.FC = () => {
       setSettings({
         categories: DEFAULT_SPENDING_CATEGORIES,
         accountConfigs: ACCOUNT_CONFIG,
-        defaultAccountType: SystemAccountType.OWN_EXPENSE
+        defaultAccountType: SystemAccountType.OWN_EXPENSE,
+        defaultCategory: '',
+        defaultSubCategories: {},
       });
     }
 
@@ -189,6 +193,8 @@ const App: React.FC = () => {
                         themeColor={themeColor} 
                         accountConfigs={settings.accountConfigs} 
                         defaultAccountType={settings.defaultAccountType}
+                        defaultCategory={settings.defaultCategory}
+                        defaultSubCategories={settings.defaultSubCategories}
                         transaction={editingTransaction}
                         onCancel={handleCancelEdit}
                       />

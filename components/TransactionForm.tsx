@@ -10,6 +10,8 @@ interface TransactionFormProps {
   themeColor?: string;
   accountConfigs: Record<string, AccountConfig>;
   defaultAccountType: string;
+  defaultCategory?: string;
+  defaultSubCategories?: Record<string, string>;
   onSubmit: (t: Omit<Transaction, 'id'>) => void;
   onUpdate: (t: Transaction) => void;
 }
@@ -22,15 +24,29 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
   categories, 
   themeColor = 'emerald',
   accountConfigs,
-  defaultAccountType
+  defaultAccountType,
+  defaultCategory,
+  defaultSubCategories
 }) => {
   const categoryNames = Object.keys(categories);
   const accountEntries = Object.entries(accountConfigs) as [string, AccountConfig][];
-  
+
+  const getInitialCategory = () => {
+    if (transaction) return transaction.spending_category;
+    return (defaultCategory && categories[defaultCategory]) ? defaultCategory : (categoryNames[0] || '');
+  };
+
+  const getInitialSubCategory = (cat: string) => {
+    if (transaction) return transaction.sub_category;
+    const defSub = defaultSubCategories?.[cat];
+    if (defSub && categories[cat]?.includes(defSub)) return defSub;
+    return categories[cat]?.[0] || '';
+  };
+
   const [amount, setAmount] = useState(transaction?.amount.toString() || '');
   const [date, setDate] = useState(transaction?.date || getLocalDateString());
-  const [spending_category, setSpendingCategory] = useState(transaction?.spending_category || categoryNames[0] || '');
-  const [sub_category, setSubCategory] = useState(transaction?.sub_category || categories[categoryNames[0]]?.[0] || '');
+  const [spending_category, setSpendingCategory] = useState(getInitialCategory);
+  const [sub_category, setSubCategory] = useState(() => getInitialSubCategory(getInitialCategory()));
   
   const initialAccount = (transaction?.account_type && accountConfigs[transaction.account_type])
     ? transaction.account_type
@@ -49,10 +65,13 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
       setRemarks(transaction.remarks);
     } else {
       // Reset form for new entry
+      const initCat = (defaultCategory && categories[defaultCategory]) ? defaultCategory : (categoryNames[0] || '');
+      const defSub = defaultSubCategories?.[initCat];
+      const initSub = (defSub && categories[initCat]?.includes(defSub)) ? defSub : (categories[initCat]?.[0] || '');
       setAmount('');
       setDate(getLocalDateString());
-      setSpendingCategory(categoryNames[0] || '');
-      setSubCategory(categories[categoryNames[0]]?.[0] || '');
+      setSpendingCategory(initCat);
+      setSubCategory(initSub);
       setSelectedAccount(accountConfigs[defaultAccountType] ? defaultAccountType : (accountEntries[0]?.[0] || ''));
       setRemarks('');
     }
@@ -61,8 +80,9 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
   useEffect(() => {
     if (!transaction || spending_category !== transaction.spending_category) {
       const availableSubs = categories[spending_category] || [];
-      const firstSub = availableSubs[0] || '';
-      setSubCategory(firstSub);
+      const defSub = defaultSubCategories?.[spending_category];
+      const sub = (defSub && availableSubs.includes(defSub)) ? defSub : (availableSubs[0] || '');
+      setSubCategory(sub);
     }
   }, [spending_category, categories, transaction]);
 

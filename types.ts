@@ -46,6 +46,8 @@ export interface WorkspaceSettings {
   categories: CategoryMap;
   accountConfigs: Record<string, AccountConfig>;
   defaultAccountType: string;
+  defaultCategory: string;
+  defaultSubCategories: Record<string, string>;
 }
 
 export type AppTab = 'add' | 'history' | 'analytics' | 'settings';
