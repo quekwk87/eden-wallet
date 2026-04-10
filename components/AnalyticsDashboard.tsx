@@ -2,9 +2,8 @@ import React, { useMemo, useState } from 'react';
 import { Ledger, SystemAccountType, Transaction, Balances, MonthlyData } from '../types';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  AreaChart, Area
+  AreaChart, Area, Cell
 } from 'recharts';
-import SmartInsights from './SmartInsights';
 
 interface AnalyticsDashboardProps {
   personalTransactions: Transaction[];
@@ -29,6 +28,7 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
 }) => {
   const [selectedMonth, setSelectedMonth] = useState<string>(getCurrentMonthKey());
   const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
+  const [drillCategory, setDrillCategory] = useState<string | null>(null);
 
   const isJointMode = currentLedger === Ledger.JOINT;
   const themeColor = isJointMode ? 'indigo' : 'emerald';
@@ -66,6 +66,7 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
   const handleMonthChange = (month: string) => {
     setSelectedMonth(month);
     setExpandedCategory(null);
+    setDrillCategory(null);
   };
 
   const filteredTransactions = useMemo(() => {
@@ -181,9 +182,7 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
     for (const cat of spendingByCategory) {
       if (cat.percentage > 35) {
         const subCats = subCategoryBreakdown[cat.name];
-        const topSub = subCats
-          ? Object.entries(subCats).sort((a, b) => b[1] - a[1])[0]
-          : null;
+        const topSub = subCats ? Object.entries(subCats).sort((a, b) => b[1] - a[1])[0] : null;
         recs.push({
           category: cat.name,
           reason: `${cat.percentage.toFixed(0)}% of total spending`,
@@ -220,6 +219,18 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
       return true;
     }).slice(0, 4);
   }, [spendingByCategory, subCategoryBreakdown]);
+
+  // Transactions for the drilled category
+  const drillTransactions = useMemo(() => {
+    if (!drillCategory) return [];
+    return filteredTransactions
+      .filter(t => t.spending_category === drillCategory && isPersonalExpense(t.account_type))
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [drillCategory, filteredTransactions, isJointMode]);
+
+  const drillColor = drillCategory
+    ? CATEGORY_COLORS[spendingByCategory.findIndex(c => c.name === drillCategory) % CATEGORY_COLORS.length]
+    : '#10b981';
 
   // ─── Sub-components ──────────────────────────────────────────────────────────
 
@@ -268,33 +279,33 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
   return (
     <div className="space-y-6 pb-12">
 
-      {/* Settlement Center */}
-      <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className={`w-10 h-10 bg-${themeColor}-100 rounded-2xl flex items-center justify-center text-${themeColor}-600`}>
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-            </div>
-            <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight">Settlement Center</h3>
-          </div>
-          <div className="flex items-center gap-2">
-            <select
-              value={selectedMonth}
-              onChange={(e) => handleMonthChange(e.target.value)}
-              className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs outline-none focus:ring-1 focus:ring-slate-300"
+      {/* Month Pill Filter */}
+      <div className="bg-white p-4 rounded-3xl border border-slate-200 shadow-sm">
+        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Filter by Month</p>
+        <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+          <button
+            onClick={() => handleMonthChange('')}
+            className={`shrink-0 px-4 py-2 rounded-2xl text-xs font-black uppercase tracking-wider transition-all ${
+              selectedMonth === ''
+                ? `bg-${themeColor}-600 text-white shadow-md`
+                : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+            }`}
+          >
+            All Time
+          </button>
+          {[...monthlySpendingData].reverse().map(m => (
+            <button
+              key={m.sortKey}
+              onClick={() => handleMonthChange(m.sortKey)}
+              className={`shrink-0 px-4 py-2 rounded-2xl text-xs font-black uppercase tracking-wider transition-all ${
+                selectedMonth === m.sortKey
+                  ? `bg-${themeColor}-600 text-white shadow-md`
+                  : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+              }`}
             >
-              <option value="">All Time</option>
-              {monthlySpendingData.map(m => (
-                <option key={m.sortKey} value={m.sortKey}>{m.month}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-8">
-          <SettlementCard label="QWK owe NXQWK" sub="Shared Fund Contribution" value={settlements.qwkOweNxqwk} />
-          <SettlementCard label="NXQ owe NXQWK" sub="Wife Shared Balance" value={settlements.nxqOweNxqwk} />
-          <SettlementCard label="NXQ owe QWK" sub="Personal Repayment" value={settlements.nxqOweQwk} />
+              {m.month}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -348,7 +359,6 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-5">
             Based on {selectedMonth ? "this month's" : 'all-time'} spending patterns
           </p>
-
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {cutRecommendations.map((rec, i) => {
               const style = recTypeStyle[rec.type];
@@ -361,9 +371,7 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                       </span>
                       <p className="text-sm font-black text-slate-800 mt-1.5">{rec.category}</p>
                     </div>
-                    <span className="text-sm font-black text-slate-700 whitespace-nowrap">
-                      ${rec.amount.toFixed(2)}
-                    </span>
+                    <span className="text-sm font-black text-slate-700 whitespace-nowrap">${rec.amount.toFixed(2)}</span>
                   </div>
                   <p className="text-[11px] font-bold text-slate-500">{rec.reason}</p>
                   {rec.subTip && (
@@ -383,7 +391,6 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-5">
             Tap a category to see sub-categories
           </p>
-
           <div className="space-y-3">
             {spendingByCategory.map((cat, i) => {
               const color = CATEGORY_COLORS[i % CATEGORY_COLORS.length];
@@ -476,29 +483,98 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
         </section>
 
         <section className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
-          <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest mb-6">Category Distribution</h3>
+          <div className="flex items-center justify-between mb-6">
+            <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Category Distribution</h3>
+            {drillCategory && (
+              <button
+                onClick={() => setDrillCategory(null)}
+                className="text-[10px] font-black text-slate-400 hover:text-slate-600 uppercase tracking-widest flex items-center gap-1"
+              >
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+                Clear
+              </button>
+            )}
+          </div>
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest -mt-4 mb-4">Tap a bar to see transactions</p>
           <div className="h-[250px]">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={spendingByCategory} layout="vertical">
+              <BarChart
+                data={spendingByCategory}
+                layout="vertical"
+                onClick={(data) => {
+                  if (data && data.activePayload && data.activePayload[0]) {
+                    const name = data.activePayload[0].payload.name;
+                    setDrillCategory(prev => prev === name ? null : name);
+                  }
+                }}
+                style={{ cursor: 'pointer' }}
+              >
                 <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
                 <XAxis type="number" hide />
                 <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{fill: '#475569', fontSize: 10, fontWeight: 700}} width={80} />
                 <Tooltip cursor={{fill: '#f8fafc'}} contentStyle={{borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}} />
-                <Bar dataKey="value" radius={[0, 8, 8, 0]} fill={isJointMode ? '#6366f1' : '#10b981'} />
+                <Bar dataKey="value" radius={[0, 8, 8, 0]}>
+                  {spendingByCategory.map((entry, index) => (
+                    <Cell
+                      key={entry.name}
+                      fill={drillCategory === entry.name ? CATEGORY_COLORS[index % CATEGORY_COLORS.length] : (drillCategory ? '#e2e8f0' : (isJointMode ? '#6366f1' : '#10b981'))}
+                      opacity={drillCategory && drillCategory !== entry.name ? 0.4 : 1}
+                    />
+                  ))}
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           </div>
+
+          {/* Transaction drill-down */}
+          {drillCategory && drillTransactions.length > 0 && (
+            <div className="mt-4 border-t border-slate-100 pt-4">
+              <div className="flex items-center gap-2 mb-3">
+                <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: drillColor }} />
+                <span className="text-xs font-black text-slate-700 uppercase tracking-widest">{drillCategory}</span>
+                <span className="text-[10px] font-bold text-slate-400">· {drillTransactions.length} transactions</span>
+              </div>
+              <div className="space-y-2 max-h-[280px] overflow-y-auto pr-1">
+                {drillTransactions.map(t => (
+                  <div key={t.id} className="flex items-center justify-between py-2 border-b border-slate-50 last:border-0">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-bold text-slate-700 truncate">{t.remarks || t.sub_category || t.spending_category}</p>
+                      <p className="text-[10px] font-semibold text-slate-400">{new Date(t.date).toLocaleDateString('en-SG', { day: 'numeric', month: 'short' })} · {t.sub_category}</p>
+                    </div>
+                    <span className="text-sm font-black text-slate-800 ml-3 shrink-0">
+                      ${t.amount.toFixed(2)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </section>
       </div>
 
-      {/* Smart Insights */}
-      <section className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
-        <h3 className={`text-sm font-black uppercase tracking-widest mb-4 flex items-center gap-2 text-${themeColor}-600`}>
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-          Smart Insights
-        </h3>
-        <SmartInsights transactions={filteredTransactions} ledgerName={currentLedger} />
-      </section>
+      {/* Settlement Center */}
+      <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+        <div className="flex items-center gap-3 mb-6">
+          <div className={`w-10 h-10 bg-${themeColor}-100 rounded-2xl flex items-center justify-center text-${themeColor}-600`}>
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+          </div>
+          <div>
+            <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight">Settlement Center</h3>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+              {selectedMonth
+                ? monthlySpendingData.find(m => m.sortKey === selectedMonth)?.month ?? selectedMonth
+                : 'All Time'}
+            </p>
+          </div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <SettlementCard label="QWK owe NXQWK" sub="Shared Fund Contribution" value={settlements.qwkOweNxqwk} />
+          <SettlementCard label="NXQ owe NXQWK" sub="Wife Shared Balance" value={settlements.nxqOweNxqwk} />
+          <SettlementCard label="NXQ owe QWK" sub="Personal Repayment" value={settlements.nxqOweQwk} />
+        </div>
+      </div>
 
     </div>
   );
