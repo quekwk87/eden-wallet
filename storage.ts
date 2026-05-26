@@ -34,19 +34,35 @@ export const dataStorage = {
 
   async saveTransaction(t: Omit<Transaction, 'id'>, ledger: Ledger): Promise<boolean> {
     const tempId = crypto.randomUUID();
-    
+
     if (isSupabaseConfigured && supabase) {
       const { error } = await supabase.from('transactions').insert([{
         ...t,
         user_id: SHARED_USER_ID,
         ledger: ledger
       }]);
-      
+
       if (!error) return true;
     }
 
     const current = JSON.parse(localStorage.getItem(`${LOCAL_STORAGE_KEY}_${ledger}`) || '[]');
     localStorage.setItem(`${LOCAL_STORAGE_KEY}_${ledger}`, JSON.stringify([{ ...t, id: tempId }, ...current]));
+    return true;
+  },
+
+  async updateTransaction(t: Transaction, ledger: Ledger): Promise<boolean> {
+    if (isSupabaseConfigured && supabase) {
+      const { id, ...fields } = t;
+      const { error } = await supabase
+        .from('transactions')
+        .update({ ...fields, user_id: SHARED_USER_ID, ledger })
+        .eq('id', id);
+      if (!error) return true;
+    }
+
+    const current: Transaction[] = JSON.parse(localStorage.getItem(`${LOCAL_STORAGE_KEY}_${ledger}`) || '[]');
+    const updated = current.map((item) => item.id === t.id ? t : item);
+    localStorage.setItem(`${LOCAL_STORAGE_KEY}_${ledger}`, JSON.stringify(updated));
     return true;
   },
 

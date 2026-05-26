@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { CategoryMap } from '../types';
 
 interface CategoryManagerProps {
@@ -24,6 +24,30 @@ const CategoryManager: React.FC<CategoryManagerProps> = ({
   const [newSubCategory, setNewSubCategory] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
+  // Rename state for categories
+  const [renamingCategory, setRenamingCategory] = useState<string | null>(null);
+  const [renameCategoryValue, setRenameCategoryValue] = useState('');
+  const renameCategoryRef = useRef<HTMLInputElement>(null);
+
+  // Rename state for subcategories
+  const [renamingSubCat, setRenamingSubCat] = useState<string | null>(null);
+  const [renameSubCatValue, setRenameSubCatValue] = useState('');
+  const renameSubCatRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (renamingCategory && renameCategoryRef.current) {
+      renameCategoryRef.current.focus();
+      renameCategoryRef.current.select();
+    }
+  }, [renamingCategory]);
+
+  useEffect(() => {
+    if (renamingSubCat && renameSubCatRef.current) {
+      renameSubCatRef.current.focus();
+      renameSubCatRef.current.select();
+    }
+  }, [renamingSubCat]);
+
   const addCategory = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newCategory.trim()) return;
@@ -42,6 +66,25 @@ const CategoryManager: React.FC<CategoryManagerProps> = ({
       if (defaultCategory === cat) onSetDefaultCategory('');
       if (selectedCategory === cat) setSelectedCategory(null);
     }
+  };
+
+  const renameCategory = (oldName: string) => {
+    const trimmed = renameCategoryValue.trim();
+    if (!trimmed || trimmed === oldName) {
+      setRenamingCategory(null);
+      return;
+    }
+    if (categories[trimmed]) {
+      alert('A category with that name already exists');
+      return;
+    }
+    const newCategories: CategoryMap = {};
+    Object.keys(categories).forEach(k => {
+      newCategories[k === oldName ? trimmed : k] = categories[k];
+    });
+    setCategories(newCategories);
+    if (defaultCategory === oldName) onSetDefaultCategory(trimmed);
+    setRenamingCategory(null);
   };
 
   const moveCategory = (cat: string, direction: 'up' | 'down') => {
@@ -80,6 +123,26 @@ const CategoryManager: React.FC<CategoryManagerProps> = ({
     }
   };
 
+  const renameSubCategory = (cat: string, oldSub: string) => {
+    const trimmed = renameSubCatValue.trim();
+    if (!trimmed || trimmed === oldSub) {
+      setRenamingSubCat(null);
+      return;
+    }
+    if (categories[cat]?.includes(trimmed)) {
+      alert('A sub-category with that name already exists');
+      return;
+    }
+    setCategories(prev => ({
+      ...prev,
+      [cat]: prev[cat].map(s => s === oldSub ? trimmed : s)
+    }));
+    if (defaultSubCategories[cat] === oldSub) {
+      onSetDefaultSubCategory(cat, trimmed);
+    }
+    setRenamingSubCat(null);
+  };
+
   const moveSubCategory = (cat: string, idx: number, direction: 'up' | 'down') => {
     const subs = [...categories[cat]];
     const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
@@ -88,6 +151,7 @@ const CategoryManager: React.FC<CategoryManagerProps> = ({
     setCategories(prev => ({ ...prev, [cat]: subs }));
   };
 
+  // ── Subcategory view ──────────────────────────────────────────────────────────
   if (selectedCategory) {
     const subs = categories[selectedCategory] || [];
     return (
@@ -129,12 +193,13 @@ const CategoryManager: React.FC<CategoryManagerProps> = ({
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
           {subs.map((sub, idx) => {
             const isDefaultSub = defaultSubCategories[selectedCategory] === sub;
+            const isRenamingSub = renamingSubCat === sub;
             return (
               <div
                 key={sub}
                 className={`bg-white p-4 rounded-2xl border flex items-center justify-between group transition-all ${isDefaultSub ? `border-${themeColor}-300 bg-${themeColor}-50` : 'border-slate-100 hover:border-slate-200'}`}
               >
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-1 min-w-0">
                   <button
                     onClick={() => onSetDefaultSubCategory(selectedCategory, isDefaultSub ? '' : sub)}
                     title={isDefaultSub ? 'Remove as default' : 'Set as default sub-category'}
@@ -144,9 +209,39 @@ const CategoryManager: React.FC<CategoryManagerProps> = ({
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
                     </svg>
                   </button>
-                  <span className="font-semibold text-slate-700">{sub}</span>
+
+                  {isRenamingSub ? (
+                    <form
+                      onSubmit={(e) => { e.preventDefault(); renameSubCategory(selectedCategory, sub); }}
+                      className="flex-1 flex gap-1.5 min-w-0"
+                    >
+                      <input
+                        ref={renameSubCatRef}
+                        type="text"
+                        value={renameSubCatValue}
+                        onChange={(e) => setRenameSubCatValue(e.target.value)}
+                        onBlur={() => renameSubCategory(selectedCategory, sub)}
+                        onKeyDown={(e) => { if (e.key === 'Escape') setRenamingSubCat(null); }}
+                        className={`flex-1 min-w-0 px-2 py-1 text-sm font-semibold border border-${themeColor}-400 rounded-lg focus:ring-2 focus:ring-${themeColor}-500 outline-none bg-white`}
+                      />
+                    </form>
+                  ) : (
+                    <span className="font-semibold text-slate-700 truncate">{sub}</span>
+                  )}
                 </div>
-                <div className="flex items-center gap-1">
+
+                <div className="flex items-center gap-1 shrink-0">
+                  {!isRenamingSub && (
+                    <button
+                      onClick={() => { setRenamingSubCat(sub); setRenameSubCatValue(sub); }}
+                      title="Rename sub-category"
+                      className="p-1.5 text-slate-300 hover:text-blue-500 hover:bg-blue-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                      </svg>
+                    </button>
+                  )}
                   <div className="flex flex-col opacity-0 group-hover:opacity-100 transition-all">
                     <button
                       onClick={() => moveSubCategory(selectedCategory, idx, 'up')}
@@ -191,6 +286,7 @@ const CategoryManager: React.FC<CategoryManagerProps> = ({
     );
   }
 
+  // ── Category list view ────────────────────────────────────────────────────────
   const categoryKeys = Object.keys(categories);
 
   return (
@@ -220,6 +316,7 @@ const CategoryManager: React.FC<CategoryManagerProps> = ({
       <div className="space-y-4">
         {categoryKeys.map((cat, idx) => {
           const isDefault = defaultCategory === cat;
+          const isRenamingCat = renamingCategory === cat;
           return (
             <div
               key={cat}
@@ -250,21 +347,51 @@ const CategoryManager: React.FC<CategoryManagerProps> = ({
                 </div>
 
                 <div
-                  className="flex-1 flex items-center gap-4 cursor-pointer min-w-0"
-                  onClick={() => setSelectedCategory(cat)}
+                  className={`flex-1 flex items-center gap-4 min-w-0 ${!isRenamingCat ? 'cursor-pointer' : ''}`}
+                  onClick={() => { if (!isRenamingCat) setSelectedCategory(cat); }}
                 >
                   <div className={`w-10 h-10 shrink-0 bg-slate-50 rounded-xl flex items-center justify-center text-slate-400 group-hover:bg-${themeColor}-50 group-hover:text-${themeColor}-600 transition-colors`}>
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
                     </svg>
                   </div>
-                  <div className="min-w-0">
-                    <h3 className={`text-lg font-bold truncate transition-colors ${isDefault ? `text-${themeColor}-700` : `text-slate-800 group-hover:text-${themeColor}-700`}`}>{cat}</h3>
+                  <div className="min-w-0 flex-1">
+                    {isRenamingCat ? (
+                      <form
+                        onSubmit={(e) => { e.preventDefault(); renameCategory(cat); }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <input
+                          ref={renameCategoryRef}
+                          type="text"
+                          value={renameCategoryValue}
+                          onChange={(e) => setRenameCategoryValue(e.target.value)}
+                          onBlur={() => renameCategory(cat)}
+                          onKeyDown={(e) => { if (e.key === 'Escape') setRenamingCategory(null); }}
+                          className={`w-full text-lg font-bold px-2 py-0.5 border border-${themeColor}-400 rounded-lg focus:ring-2 focus:ring-${themeColor}-500 outline-none bg-white text-slate-800`}
+                        />
+                      </form>
+                    ) : (
+                      <h3 className={`text-lg font-bold truncate transition-colors ${isDefault ? `text-${themeColor}-700` : `text-slate-800 group-hover:text-${themeColor}-700`}`}>{cat}</h3>
+                    )}
                     <p className="text-xs font-semibold text-slate-400">{categories[cat].length} Sub-categories</p>
                   </div>
                 </div>
 
                 <div className="flex items-center gap-1 shrink-0">
+                  {/* Rename button */}
+                  {!isRenamingCat && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setRenamingCategory(cat); setRenameCategoryValue(cat); }}
+                      title="Rename category"
+                      className="p-1.5 rounded-lg transition-all text-slate-200 hover:text-blue-500 hover:bg-blue-50 sm:opacity-0 group-hover:opacity-100"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                      </svg>
+                    </button>
+                  )}
+                  {/* Default star */}
                   <button
                     onClick={(e) => { e.stopPropagation(); onSetDefaultCategory(isDefault ? '' : cat); }}
                     title={isDefault ? 'Remove as default category' : 'Set as default category'}
@@ -274,6 +401,7 @@ const CategoryManager: React.FC<CategoryManagerProps> = ({
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
                     </svg>
                   </button>
+                  {/* Delete */}
                   <button
                     onClick={(e) => { e.stopPropagation(); deleteCategory(cat); }}
                     className="p-2 text-slate-300 hover:text-rose-500 rounded-xl hover:bg-rose-50 transition-all sm:opacity-0 group-hover:opacity-100"
@@ -283,14 +411,17 @@ const CategoryManager: React.FC<CategoryManagerProps> = ({
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                     </svg>
                   </button>
-                  <div
-                    className="text-slate-300 transform group-hover:translate-x-1 transition-transform cursor-pointer p-1"
-                    onClick={() => setSelectedCategory(cat)}
-                  >
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
-                    </svg>
-                  </div>
+                  {/* Chevron */}
+                  {!isRenamingCat && (
+                    <div
+                      className="text-slate-300 transform group-hover:translate-x-1 transition-transform cursor-pointer p-1"
+                      onClick={() => setSelectedCategory(cat)}
+                    >
+                      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
+                      </svg>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

@@ -94,7 +94,7 @@ const App: React.FC = () => {
   };
 
   const handleUpdateTransaction = async (t: Transaction) => {
-    await dataStorage.saveTransaction(t, currentLedger);
+    await dataStorage.updateTransaction(t, currentLedger);
     fetchData();
     setEditingTransaction(null);
     setActiveTab('history');
