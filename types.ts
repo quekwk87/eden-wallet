@@ -48,6 +48,8 @@ export interface WorkspaceSettings {
   defaultAccountType: string;
   defaultCategory: string;
   defaultSubCategories: Record<string, string>;
+  monthlyBudget?: number;
+  categoryBudgets?: Record<string, number>;
 }
 
 export type AppTab = 'add' | 'history' | 'analytics' | 'settings';

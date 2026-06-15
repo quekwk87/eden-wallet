@@ -90,29 +90,6 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
     });
   }, [transactions, selectedMonth]);
 
-  const settlements = useMemo(() => {
-    const sum = (txs: Transaction[], type: string) =>
-      txs.filter(t => t.account_type === type).reduce((acc, t) => acc + t.amount, 0);
-
-    const filterByMonth = (txs: Transaction[]) => {
-      if (!selectedMonth) return txs;
-      return txs.filter(t => {
-        const date = new Date(t.date);
-        const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-        return key === selectedMonth;
-      });
-    };
-
-    const pTxs = filterByMonth(personalTransactions);
-    const jTxs = filterByMonth(jointTransactions);
-
-    const qwkOweNxqwk = (sum(pTxs, SystemAccountType.OWED_TO_NXQWK) + sum(jTxs, SystemAccountType.OWED_TO_NXQWK)) -
-                         (sum(pTxs, SystemAccountType.OWED_BY_NXQWK) + sum(jTxs, SystemAccountType.OWED_BY_NXQWK));
-    const nxqOweNxqwk = sum(jTxs, SystemAccountType.OWED_BY_NXQ) - sum(jTxs, SystemAccountType.OWED_TO_NXQ);
-    const nxqOweQwk = sum(pTxs, SystemAccountType.OWED_BY_NXQ) - sum(pTxs, SystemAccountType.OWED_TO_NXQ);
-
-    return { qwkOweNxqwk, nxqOweNxqwk, nxqOweQwk };
-  }, [personalTransactions, jointTransactions, selectedMonth]);
 
   const stats: Balances = useMemo(() => {
     return filteredTransactions.reduce((acc, t) => {
@@ -234,23 +211,6 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
 
   // ─── Sub-components ──────────────────────────────────────────────────────────
 
-  const SettlementCard = ({ label, value, sub }: { label: string; value: number; sub: string }) => (
-    <div className={`bg-white p-5 rounded-3xl shadow-sm border ${value > 0 ? 'border-rose-100' : value < 0 ? 'border-emerald-100' : 'border-slate-100'}`}>
-      <div className="flex justify-between items-start mb-2">
-        <div>
-          <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none mb-1">{label}</h4>
-          <p className="text-[9px] text-slate-300 font-bold uppercase tracking-wider">{sub}</p>
-        </div>
-        <div className={`w-2 h-2 rounded-full ${value > 0 ? 'bg-rose-400' : value < 0 ? 'bg-emerald-400' : 'bg-slate-200'}`} />
-      </div>
-      <div className="flex items-baseline gap-1">
-        <span className={`text-2xl font-black ${value > 0 ? 'text-rose-600' : value < 0 ? 'text-emerald-600' : 'text-slate-400'}`}>
-          ${Math.abs(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-        </span>
-        <span className="text-[10px] font-bold text-slate-400 uppercase">{value >= 0 ? 'Owed' : 'Receivable'}</span>
-      </div>
-    </div>
-  );
 
   const TrendArrow = ({ trend }: { trend: number | null }) => {
     if (trend === null) return <span className="text-slate-300 text-[10px] font-bold">—</span>;
@@ -554,27 +514,6 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
         </section>
       </div>
 
-      {/* Settlement Center */}
-      <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
-        <div className="flex items-center gap-3 mb-6">
-          <div className={`w-10 h-10 bg-${themeColor}-100 rounded-2xl flex items-center justify-center text-${themeColor}-600`}>
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-          </div>
-          <div>
-            <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight">Settlement Center</h3>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-              {selectedMonth
-                ? monthlySpendingData.find(m => m.sortKey === selectedMonth)?.month ?? selectedMonth
-                : 'All Time'}
-            </p>
-          </div>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <SettlementCard label="QWK owe NXQWK" sub="Shared Fund Contribution" value={settlements.qwkOweNxqwk} />
-          <SettlementCard label="NXQ owe NXQWK" sub="Wife Shared Balance" value={settlements.nxqOweNxqwk} />
-          <SettlementCard label="NXQ owe QWK" sub="Personal Repayment" value={settlements.nxqOweQwk} />
-        </div>
-      </div>
 
     </div>
   );

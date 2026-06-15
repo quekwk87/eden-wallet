@@ -3,6 +3,91 @@ import React, { useState, useEffect } from 'react';
 import type { Transaction, CategoryMap, AccountConfig } from '../types';
 import { getLocalDateString } from '../utils';
 
+const currentMonthKey = () => {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+};
+
+const BudgetStrip: React.FC<{
+  transactions: Transaction[];
+  spending_category: string;
+  monthlyBudget?: number;
+  categoryBudgets?: Record<string, number>;
+  themeColor: string;
+}> = ({ transactions, spending_category, monthlyBudget, categoryBudgets, themeColor }) => {
+  const monthKey = currentMonthKey();
+  const currentMonthTxs = transactions.filter(t => {
+    const d = new Date(t.date);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` === monthKey;
+  });
+
+  const totalSpent = currentMonthTxs.reduce((s, t) => s + t.amount, 0);
+  const categorySpent = currentMonthTxs
+    .filter(t => t.spending_category === spending_category)
+    .reduce((s, t) => s + t.amount, 0);
+
+  const catBudget = categoryBudgets?.[spending_category];
+  const hasTotalBudget = monthlyBudget !== undefined && monthlyBudget > 0;
+  const hasCatBudget = catBudget !== undefined && catBudget > 0;
+
+  if (!hasTotalBudget && !hasCatBudget) return null;
+
+  const pct = (spent: number, budget: number) => Math.min((spent / budget) * 100, 100);
+  const barColor = (spent: number, budget: number) => {
+    const p = (spent / budget) * 100;
+    if (p >= 100) return 'bg-rose-500';
+    if (p >= 80) return 'bg-amber-400';
+    return `bg-${themeColor}-500`;
+  };
+  const amountColor = (spent: number, budget: number) => {
+    const p = (spent / budget) * 100;
+    if (p >= 100) return 'text-rose-600';
+    if (p >= 80) return 'text-amber-600';
+    return 'text-slate-700';
+  };
+  const statusLabel = (spent: number, budget: number) => {
+    const remaining = budget - spent;
+    if (remaining < 0) return `$${Math.abs(remaining).toFixed(2)} over budget`;
+    return `$${remaining.toFixed(2)} remaining`;
+  };
+
+  return (
+    <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 space-y-3">
+      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Budget · {new Date().toLocaleString('default', { month: 'long', year: 'numeric' })}</p>
+      {hasTotalBudget && (
+        <div>
+          <div className="flex justify-between items-baseline mb-1.5">
+            <span className="text-xs font-bold text-slate-500">Total</span>
+            <div className="flex items-baseline gap-1.5">
+              <span className={`text-xs font-black ${amountColor(totalSpent, monthlyBudget!)}`}>${totalSpent.toFixed(2)}</span>
+              <span className="text-[10px] text-slate-400">/ ${monthlyBudget!.toFixed(2)}</span>
+              <span className={`text-[10px] font-bold ${amountColor(totalSpent, monthlyBudget!)}`}>· {statusLabel(totalSpent, monthlyBudget!)}</span>
+            </div>
+          </div>
+          <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden">
+            <div className={`h-full rounded-full transition-all duration-300 ${barColor(totalSpent, monthlyBudget!)}`} style={{ width: `${pct(totalSpent, monthlyBudget!)}%` }} />
+          </div>
+        </div>
+      )}
+      {hasCatBudget && (
+        <div>
+          <div className="flex justify-between items-baseline mb-1.5">
+            <span className="text-xs font-bold text-slate-500">{spending_category}</span>
+            <div className="flex items-baseline gap-1.5">
+              <span className={`text-xs font-black ${amountColor(categorySpent, catBudget!)}`}>${categorySpent.toFixed(2)}</span>
+              <span className="text-[10px] text-slate-400">/ ${catBudget!.toFixed(2)}</span>
+              <span className={`text-[10px] font-bold ${amountColor(categorySpent, catBudget!)}`}>· {statusLabel(categorySpent, catBudget!)}</span>
+            </div>
+          </div>
+          <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden">
+            <div className={`h-full rounded-full transition-all duration-300 ${barColor(categorySpent, catBudget!)}`} style={{ width: `${pct(categorySpent, catBudget!)}%` }} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 interface TransactionFormProps {
   transaction?: Transaction | null;
   onCancel?: () => void;
@@ -14,19 +99,25 @@ interface TransactionFormProps {
   defaultSubCategories?: Record<string, string>;
   onSubmit: (t: Omit<Transaction, 'id'>) => void;
   onUpdate: (t: Transaction) => void;
+  transactions?: Transaction[];
+  monthlyBudget?: number;
+  categoryBudgets?: Record<string, number>;
 }
 
-const TransactionForm: React.FC<TransactionFormProps> = ({ 
+const TransactionForm: React.FC<TransactionFormProps> = ({
   onSubmit,
-  onUpdate, 
-  transaction, 
-  onCancel, 
-  categories, 
+  onUpdate,
+  transaction,
+  onCancel,
+  categories,
   themeColor = 'emerald',
   accountConfigs,
   defaultAccountType,
   defaultCategory,
-  defaultSubCategories
+  defaultSubCategories,
+  transactions,
+  monthlyBudget,
+  categoryBudgets,
 }) => {
   const categoryNames = Object.keys(categories);
   const accountEntries = Object.entries(accountConfigs) as [string, AccountConfig][];
@@ -165,6 +256,16 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
           </select>
         </div>
       </div>
+
+      {transactions && (
+        <BudgetStrip
+          transactions={transactions}
+          spending_category={spending_category}
+          monthlyBudget={monthlyBudget}
+          categoryBudgets={categoryBudgets}
+          themeColor={themeColor}
+        />
+      )}
 
       <div>
         <label className="block text-sm font-medium text-slate-700 mb-1">Remarks</label>

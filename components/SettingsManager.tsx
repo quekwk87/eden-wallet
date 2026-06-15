@@ -19,7 +19,7 @@ const SettingsManager: React.FC<SettingsManagerProps> = ({
   themeColor, 
   currentLedger 
 }) => {
-  const [activeTab, setActiveTab] = useState<'categories' | 'accounts' | 'cloud'>('categories');
+  const [activeTab, setActiveTab] = useState<'categories' | 'budget' | 'accounts' | 'cloud'>('categories');
   const [editingLabelType, setEditingLabelType] = useState<string | null>(null);
   const [testStatus, setTestStatus] = useState<{ type: 'success' | 'error' | 'idle' | 'loading', message: string }>({ type: 'idle', message: '' });
   const [newLabelName, setNewLabelName] = useState('');
@@ -127,10 +127,11 @@ WITH CHECK (user_id = '00000000-0000-0000-0000-000000000000');`;
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between border-b border-slate-200">
-        <div className="flex">
-          <button onClick={() => setActiveTab('categories')} className={`px-6 py-4 font-bold text-sm ${activeTab === 'categories' ? `border-b-2 border-${themeColor}-600 text-${themeColor}-700` : 'text-slate-500'}`}>Master Categories</button>
-          <button onClick={() => setActiveTab('accounts')} className={`px-6 py-4 font-bold text-sm ${activeTab === 'accounts' ? `border-b-2 border-${themeColor}-600 text-${themeColor}-700` : 'text-slate-500'}`}>Account Labels</button>
-          <button onClick={() => setActiveTab('cloud')} className={`px-6 py-4 font-bold text-sm ${activeTab === 'cloud' ? `border-b-2 border-amber-600 text-amber-700` : 'text-slate-500'}`}>Cloud Sync ✨</button>
+        <div className="flex overflow-x-auto">
+          <button onClick={() => setActiveTab('categories')} className={`shrink-0 px-5 py-4 font-bold text-sm ${activeTab === 'categories' ? `border-b-2 border-${themeColor}-600 text-${themeColor}-700` : 'text-slate-500'}`}>Categories</button>
+          <button onClick={() => setActiveTab('budget')} className={`shrink-0 px-5 py-4 font-bold text-sm ${activeTab === 'budget' ? `border-b-2 border-${themeColor}-600 text-${themeColor}-700` : 'text-slate-500'}`}>Budget</button>
+          <button onClick={() => setActiveTab('accounts')} className={`shrink-0 px-5 py-4 font-bold text-sm ${activeTab === 'accounts' ? `border-b-2 border-${themeColor}-600 text-${themeColor}-700` : 'text-slate-500'}`}>Account Labels</button>
+          <button onClick={() => setActiveTab('cloud')} className={`shrink-0 px-5 py-4 font-bold text-sm ${activeTab === 'cloud' ? `border-b-2 border-amber-600 text-amber-700` : 'text-slate-500'}`}>Cloud Sync</button>
         </div>
         
         {isSyncing && (
@@ -151,6 +152,67 @@ WITH CHECK (user_id = '00000000-0000-0000-0000-000000000000');`;
           onSetDefaultSubCategory={handleSetDefaultSubCategory}
           themeColor={themeColor}
         />
+      )}
+
+      {activeTab === 'budget' && (
+        <div className="space-y-6">
+          <div className="bg-white p-6 rounded-3xl border border-slate-200 space-y-4">
+            <div>
+              <h3 className="font-black text-slate-800 mb-1">Monthly Budget</h3>
+              <p className="text-xs text-slate-500 mb-4">Set a total spending limit for the month. Leave blank to disable.</p>
+              <div className="relative max-w-xs">
+                <span className="absolute left-3 top-2.5 text-slate-400 font-medium">$</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="e.g. 2000"
+                  defaultValue={settings.monthlyBudget ?? ''}
+                  onBlur={(e) => {
+                    const val = parseFloat(e.target.value);
+                    saveSettings({ ...settings, monthlyBudget: isNaN(val) || val <= 0 ? undefined : val });
+                  }}
+                  className={`w-full pl-8 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-${themeColor}-500 outline-none text-lg font-semibold`}
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white p-6 rounded-3xl border border-slate-200 space-y-4">
+            <div>
+              <h3 className="font-black text-slate-800 mb-1">Category Budgets</h3>
+              <p className="text-xs text-slate-500 mb-4">Set a monthly limit per category. Leave blank to skip that category.</p>
+            </div>
+            <div className="space-y-3">
+              {Object.keys(settings.categories).map(cat => (
+                <div key={cat} className="flex items-center gap-4">
+                  <span className="text-sm font-bold text-slate-700 w-32 shrink-0">{cat}</span>
+                  <div className="relative flex-1 max-w-xs">
+                    <span className="absolute left-3 top-2.5 text-slate-400 font-medium">$</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      placeholder="no limit"
+                      defaultValue={settings.categoryBudgets?.[cat] ?? ''}
+                      onBlur={(e) => {
+                        const val = parseFloat(e.target.value);
+                        const updated = { ...(settings.categoryBudgets || {}) };
+                        if (isNaN(val) || val <= 0) {
+                          delete updated[cat];
+                        } else {
+                          updated[cat] = val;
+                        }
+                        saveSettings({ ...settings, categoryBudgets: updated });
+                      }}
+                      className={`w-full pl-8 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-${themeColor}-500 outline-none font-semibold`}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
       )}
 
       {activeTab === 'accounts' && (

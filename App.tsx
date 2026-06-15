@@ -186,17 +186,20 @@ const App: React.FC = () => {
                         </h2>
                         <span className="text-[10px] font-black text-slate-300 uppercase tracking-[0.2em]">{currentLedger}</span>
                       </div>
-                      <TransactionForm 
-                        onSubmit={handleAddTransaction} 
+                      <TransactionForm
+                        onSubmit={handleAddTransaction}
                         onUpdate={handleUpdateTransaction}
-                        categories={settings.categories} 
-                        themeColor={themeColor} 
-                        accountConfigs={settings.accountConfigs} 
+                        categories={settings.categories}
+                        themeColor={themeColor}
+                        accountConfigs={settings.accountConfigs}
                         defaultAccountType={settings.defaultAccountType}
                         defaultCategory={settings.defaultCategory}
                         defaultSubCategories={settings.defaultSubCategories}
                         transaction={editingTransaction}
                         onCancel={handleCancelEdit}
+                        transactions={currentTransactions}
+                        monthlyBudget={settings.monthlyBudget}
+                        categoryBudgets={settings.categoryBudgets}
                       />
                     </section>
                   </div>
