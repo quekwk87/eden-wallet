@@ -30,7 +30,8 @@ export interface Balances {
 }
 
 export interface MonthlyData {
-  month: string;
+  sortKey: string;   // 'YYYY-MM' for sorting/filtering
+  month: string;     // display label e.g. 'Aug 2026'
   amount: number;
 }
 

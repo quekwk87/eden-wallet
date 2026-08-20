@@ -227,8 +227,6 @@ const App: React.FC = () => {
                         transaction={editingTransaction}
                         onCancel={handleCancelEdit}
                         transactions={currentTransactions}
-                        monthlyBudget={settings.monthlyBudget}
-                        categoryBudgets={settings.categoryBudgets}
                         envelopes={envelopes}
                       />
                     </section>
@@ -245,10 +243,12 @@ const App: React.FC = () => {
                   </section>
                 )}
                 {activeTab === 'analytics' && !editingTransaction && (
-                  <AnalyticsDashboard 
+                  <AnalyticsDashboard
                     personalTransactions={personalTransactions}
                     jointTransactions={jointTransactions}
-                    currentLedger={currentLedger} 
+                    currentLedger={currentLedger}
+                    envelopes={envelopes}
+                    monthlyBudget={settings.monthlyBudget}
                   />
                 )}
                 {activeTab === 'settings' && !editingTransaction && (
