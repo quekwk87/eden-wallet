@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import type { Transaction, CategoryMap, AccountConfig } from '../types';
+import type { Transaction, CategoryMap, AccountConfig, Envelope } from '../types';
 import { getLocalDateString } from '../utils';
 
 const currentMonthKey = () => {
@@ -102,6 +102,7 @@ interface TransactionFormProps {
   transactions?: Transaction[];
   monthlyBudget?: number;
   categoryBudgets?: Record<string, number>;
+  envelopes?: Envelope[];   // used from step 4 (EnvelopeStrip); accepted now, unused
 }
 
 const TransactionForm: React.FC<TransactionFormProps> = ({

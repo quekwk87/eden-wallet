@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Transaction, AppTab, WorkspaceSettings, Ledger, SystemAccountType } from './types';
+import { Transaction, AppTab, WorkspaceSettings, Ledger, SystemAccountType, Envelope } from './types';
 import TransactionForm from './components/TransactionForm';
 import TransactionList from './components/TransactionList';
 import AnalyticsDashboard from './components/AnalyticsDashboard';
@@ -17,6 +17,7 @@ const App: React.FC = () => {
   const [currentLedger, setCurrentLedger] = useState<Ledger>(Ledger.PERSONAL);
   const [personalTransactions, setPersonalTransactions] = useState<Transaction[]>([]);
   const [jointTransactions, setJointTransactions] = useState<Transaction[]>([]);
+  const [envelopes, setEnvelopes] = useState<Envelope[]>([]);
   
   const [settings, setSettings] = useState<WorkspaceSettings>({
     categories: DEFAULT_SPENDING_CATEGORIES,
@@ -49,12 +50,40 @@ const App: React.FC = () => {
     // Load transactions for BOTH ledgers to support cross-ledger analytics
     const pTxs = await dataStorage.getTransactions(Ledger.PERSONAL);
     const jTxs = await dataStorage.getTransactions(Ledger.JOINT);
-    
+
     setPersonalTransactions(pTxs);
     setJointTransactions(jTxs);
-    
+
+    // Load envelopes for the current ledger (+ one-time migration of old budgets)
+    await loadEnvelopes(currentLedger, savedSettings);
+
     setLoading(false);
   };
+
+  // Load envelopes for a ledger. On first load, migrate any old categoryBudgets
+  // into the matching envelope amounts (once, guarded by settings.budgetsMigrated).
+  const loadEnvelopes = async (ledger: Ledger, currentSettings?: WorkspaceSettings | null) => {
+    let envs = await dataStorage.getEnvelopes(ledger);
+
+    const s = currentSettings;
+    const needsMigration = s && !s.budgetsMigrated && s.categoryBudgets && Object.keys(s.categoryBudgets).length > 0;
+    if (needsMigration) {
+      for (const [cat, amt] of Object.entries(s!.categoryBudgets!)) {
+        const env = envs.find(e => e.name === cat);
+        if (env && amt > 0 && (!env.monthly_amount || env.monthly_amount === 0)) {
+          await dataStorage.updateEnvelope({ ...env, monthly_amount: amt }, ledger);
+        }
+      }
+      const migrated = { ...s!, budgetsMigrated: true };
+      await dataStorage.saveSettings(migrated, ledger);
+      setSettings(migrated);
+      envs = await dataStorage.getEnvelopes(ledger);
+    }
+
+    setEnvelopes(envs);
+  };
+
+  const reloadEnvelopes = () => loadEnvelopes(currentLedger);
 
   // Silently re-fetch settings from Supabase without triggering the full loading spinner.
   // This ensures edits always start from the latest cloud state, preventing stale-state
@@ -200,6 +229,7 @@ const App: React.FC = () => {
                         transactions={currentTransactions}
                         monthlyBudget={settings.monthlyBudget}
                         categoryBudgets={settings.categoryBudgets}
+                        envelopes={envelopes}
                       />
                     </section>
                   </div>
@@ -222,11 +252,13 @@ const App: React.FC = () => {
                   />
                 )}
                 {activeTab === 'settings' && !editingTransaction && (
-                  <SettingsManager 
-                    settings={settings} 
-                    setSettings={handleUpdateSettings} 
-                    themeColor={themeColor} 
-                    currentLedger={currentLedger} 
+                  <SettingsManager
+                    settings={settings}
+                    setSettings={handleUpdateSettings}
+                    themeColor={themeColor}
+                    currentLedger={currentLedger}
+                    envelopes={envelopes}
+                    onEnvelopesChanged={reloadEnvelopes}
                   />
                 )}
               </>
