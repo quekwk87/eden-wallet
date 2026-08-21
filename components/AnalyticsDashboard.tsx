@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Ledger, SystemAccountType, Transaction, Balances, MonthlyData } from '../types';
+import { Ledger, SystemAccountType, Transaction, Balances, MonthlyData, Envelope } from '../types';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   AreaChart, Area, Cell
@@ -9,6 +9,8 @@ interface AnalyticsDashboardProps {
   personalTransactions: Transaction[];
   jointTransactions: Transaction[];
   currentLedger: Ledger;
+  envelopes?: Envelope[];
+  monthlyBudget?: number;
 }
 
 const CATEGORY_COLORS = [
@@ -24,7 +26,9 @@ const getCurrentMonthKey = () => {
 const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
   personalTransactions,
   jointTransactions,
-  currentLedger
+  currentLedger,
+  envelopes,
+  monthlyBudget
 }) => {
   const [selectedMonth, setSelectedMonth] = useState<string>(getCurrentMonthKey());
   const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
@@ -138,6 +142,16 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
       })
       .sort((a, b) => b.value - a.value);
   }, [filteredTransactions, prevMonthTransactions, isJointMode]);
+
+  // Spent per category for the selected month — matches the entry-form EnvelopeStrip
+  // (sums all transactions of the category, regardless of account_type).
+  const spentByCategory = useMemo(() => {
+    const m: Record<string, number> = {};
+    filteredTransactions.forEach(t => {
+      m[t.spending_category] = (m[t.spending_category] || 0) + t.amount;
+    });
+    return m;
+  }, [filteredTransactions]);
 
   const subCategoryBreakdown = useMemo(() => {
     const data: Record<string, Record<string, number>> = {};
@@ -306,6 +320,94 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
           ) : null;
         })()}
       </div>
+
+      {/* Envelopes at a glance (only meaningful for a specific month) */}
+      {selectedMonth && envelopes && envelopes.length > 0 && (() => {
+        const [y, mo] = selectedMonth.split('-');
+        const monthLabel = new Date(parseInt(y), parseInt(mo) - 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+        const hasOverall = monthlyBudget !== undefined && monthlyBudget > 0;
+        return (
+          <section className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+            <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest mb-1">Envelopes</h3>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-5">{monthLabel}</p>
+
+            {/* Overall monthly budget */}
+            {hasOverall && (() => {
+              const p = (stats.totalSpent / monthlyBudget!) * 100;
+              const bar = p >= 100 ? 'bg-rose-500' : p >= 80 ? 'bg-amber-400' : `bg-${themeColor}-600`;
+              const amt = p >= 100 ? 'text-rose-600' : p >= 80 ? 'text-amber-600' : 'text-slate-700';
+              const remaining = monthlyBudget! - stats.totalSpent;
+              return (
+                <div className="mb-5 pb-5 border-b border-slate-100">
+                  <div className="flex justify-between items-baseline mb-1.5">
+                    <span className="text-xs font-black text-slate-700 uppercase tracking-wider">Overall</span>
+                    <div className="flex items-baseline gap-1.5">
+                      <span className={`text-xs font-black ${amt}`}>${stats.totalSpent.toFixed(2)}</span>
+                      <span className="text-[10px] text-slate-400">/ ${monthlyBudget!.toFixed(2)}</span>
+                      <span className={`text-[10px] font-bold ${amt}`}>· {remaining < 0 ? `$${Math.abs(remaining).toFixed(2)} over` : `$${remaining.toFixed(2)} left`}</span>
+                    </div>
+                  </div>
+                  <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                    <div className={`h-full rounded-full transition-all duration-500 ${bar}`} style={{ width: `${Math.min(p, 100)}%` }} />
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Per-envelope meters */}
+            <div className="space-y-4">
+              {envelopes.map(env => {
+                const spent = spentByCategory[env.name] || 0;
+                const color = env.color || 'slate';
+
+                if (env.type === 'monthly_reset') {
+                  const limit = env.monthly_amount;
+                  const p = limit > 0 ? (spent / limit) * 100 : 0;
+                  const bar = p >= 100 ? 'bg-rose-500' : p >= 80 ? 'bg-amber-400' : `bg-${color}-500`;
+                  const amt = p >= 100 ? 'text-rose-600' : p >= 80 ? 'text-amber-600' : 'text-slate-700';
+                  const remaining = limit - spent;
+                  return (
+                    <div key={env.id}>
+                      <div className="flex justify-between items-baseline mb-1">
+                        <span className="text-xs font-bold text-slate-600">{env.name}</span>
+                        <div className="flex items-baseline gap-1.5">
+                          <span className={`text-xs font-black ${amt}`}>${spent.toFixed(2)}</span>
+                          {limit > 0
+                            ? <><span className="text-[10px] text-slate-400">/ ${limit.toFixed(2)}</span><span className={`text-[10px] font-bold ${amt}`}>· {remaining < 0 ? `$${Math.abs(remaining).toFixed(2)} over` : `$${remaining.toFixed(2)} left`}</span></>
+                            : <span className="text-[10px] text-slate-300 italic">no limit</span>}
+                        </div>
+                      </div>
+                      {limit > 0 && (
+                        <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                          <div className={`h-full rounded-full transition-all duration-500 ${bar}`} style={{ width: `${Math.min(p, 100)}%` }} />
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
+
+                // sinking_fund — balance / drawn / remaining (calm, no over-budget alarm)
+                const balance = env.balance || 0;
+                const remaining = balance - spent;
+                return (
+                  <div key={env.id} className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className={`w-2 h-2 rounded-full bg-${color}-500`} />
+                      <span className="text-xs font-bold text-slate-600">{env.name}</span>
+                      <span className="text-[9px] font-black bg-slate-100 text-slate-400 px-1.5 py-0.5 rounded-full uppercase tracking-wider">Fund</span>
+                    </div>
+                    <div className="text-right">
+                      <span className={`text-xs font-black ${remaining < 0 ? 'text-rose-600' : 'text-slate-700'}`}>${remaining.toFixed(2)}</span>
+                      <span className="text-[10px] text-slate-400"> left</span>
+                      <p className="text-[10px] font-semibold text-slate-400">${balance.toFixed(2)} fund · ${spent.toFixed(2)} drawn</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        );
+      })()}
 
       {/* Where to Cut */}
       {cutRecommendations.length > 0 && (

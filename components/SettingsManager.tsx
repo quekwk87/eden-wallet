@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { WorkspaceSettings, Ledger, AccountConfig, CategoryMap } from '../types';
+import { WorkspaceSettings, Ledger, AccountConfig, CategoryMap, Envelope, EnvelopeType } from '../types';
 import { COLOR_PALETTE } from '../constants';
 import { dataStorage } from '../storage';
 import { supabase, isSupabaseConfigured } from '../supabase';
@@ -11,19 +11,64 @@ interface SettingsManagerProps {
   setSettings: (s: WorkspaceSettings) => void;
   themeColor: string;
   currentLedger: Ledger;
+  envelopes?: Envelope[];              // used from step 3 (Envelopes tab); accepted now, unused
+  onEnvelopesChanged?: () => void;     // reloads envelopes in App after edits
 }
 
-const SettingsManager: React.FC<SettingsManagerProps> = ({ 
-  settings, 
-  setSettings, 
-  themeColor, 
-  currentLedger 
+const SettingsManager: React.FC<SettingsManagerProps> = ({
+  settings,
+  setSettings,
+  themeColor,
+  currentLedger,
+  envelopes,
+  onEnvelopesChanged,
 }) => {
-  const [activeTab, setActiveTab] = useState<'categories' | 'budget' | 'accounts' | 'cloud'>('categories');
+  const [activeTab, setActiveTab] = useState<'categories' | 'envelopes' | 'accounts' | 'cloud'>('categories');
   const [editingLabelType, setEditingLabelType] = useState<string | null>(null);
   const [testStatus, setTestStatus] = useState<{ type: 'success' | 'error' | 'idle' | 'loading', message: string }>({ type: 'idle', message: '' });
   const [newLabelName, setNewLabelName] = useState('');
   const [isSyncing, setIsSyncing] = useState(false);
+  const [newEnvelopeName, setNewEnvelopeName] = useState('');
+  const [newEnvelopeType, setNewEnvelopeType] = useState<EnvelopeType>('monthly_reset');
+  const [colorPickerId, setColorPickerId] = useState<string | null>(null);
+
+  const envList = envelopes || [];
+
+  const patchEnvelope = async (env: Envelope, changes: Partial<Envelope>) => {
+    setIsSyncing(true);
+    await dataStorage.updateEnvelope({ ...env, ...changes }, currentLedger);
+    onEnvelopesChanged?.();
+    setTimeout(() => setIsSyncing(false), 600);
+  };
+
+  const addEnvelope = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const name = newEnvelopeName.trim();
+    if (!name) return;
+    setIsSyncing(true);
+    const maxOrder = envList.reduce((m, x) => Math.max(m, x.sort_order || 0), 0);
+    await dataStorage.saveEnvelope({
+      ledger: currentLedger,
+      name,
+      type: newEnvelopeType,
+      monthly_amount: 0,
+      balance: 0,
+      color: COLOR_PALETTE[Math.floor(Math.random() * COLOR_PALETTE.length)],
+      sort_order: maxOrder + 1,
+      active: true,
+    }, currentLedger);
+    setNewEnvelopeName('');
+    onEnvelopesChanged?.();
+    setTimeout(() => setIsSyncing(false), 600);
+  };
+
+  const deleteEnvelope = async (env: Envelope) => {
+    if (!window.confirm(`Delete envelope "${env.name}"? Its budget/fund settings will be removed.`)) return;
+    setIsSyncing(true);
+    await dataStorage.deactivateEnvelope(env.id, currentLedger);
+    onEnvelopesChanged?.();
+    setTimeout(() => setIsSyncing(false), 600);
+  };
 
   const saveSettings = async (newSettings: WorkspaceSettings) => {
     setIsSyncing(true);
@@ -129,7 +174,7 @@ WITH CHECK (user_id = '00000000-0000-0000-0000-000000000000');`;
       <div className="flex items-center justify-between border-b border-slate-200">
         <div className="flex overflow-x-auto">
           <button onClick={() => setActiveTab('categories')} className={`shrink-0 px-5 py-4 font-bold text-sm ${activeTab === 'categories' ? `border-b-2 border-${themeColor}-600 text-${themeColor}-700` : 'text-slate-500'}`}>Categories</button>
-          <button onClick={() => setActiveTab('budget')} className={`shrink-0 px-5 py-4 font-bold text-sm ${activeTab === 'budget' ? `border-b-2 border-${themeColor}-600 text-${themeColor}-700` : 'text-slate-500'}`}>Budget</button>
+          <button onClick={() => setActiveTab('envelopes')} className={`shrink-0 px-5 py-4 font-bold text-sm ${activeTab === 'envelopes' ? `border-b-2 border-${themeColor}-600 text-${themeColor}-700` : 'text-slate-500'}`}>Envelopes</button>
           <button onClick={() => setActiveTab('accounts')} className={`shrink-0 px-5 py-4 font-bold text-sm ${activeTab === 'accounts' ? `border-b-2 border-${themeColor}-600 text-${themeColor}-700` : 'text-slate-500'}`}>Account Labels</button>
           <button onClick={() => setActiveTab('cloud')} className={`shrink-0 px-5 py-4 font-bold text-sm ${activeTab === 'cloud' ? `border-b-2 border-amber-600 text-amber-700` : 'text-slate-500'}`}>Cloud Sync</button>
         </div>
@@ -154,64 +199,93 @@ WITH CHECK (user_id = '00000000-0000-0000-0000-000000000000');`;
         />
       )}
 
-      {activeTab === 'budget' && (
+      {activeTab === 'envelopes' && (
         <div className="space-y-6">
-          <div className="bg-white p-6 rounded-3xl border border-slate-200 space-y-4">
-            <div>
-              <h3 className="font-black text-slate-800 mb-1">Monthly Budget</h3>
-              <p className="text-xs text-slate-500 mb-4">Set a total spending limit for the month. Leave blank to disable.</p>
-              <div className="relative max-w-xs">
-                <span className="absolute left-3 top-2.5 text-slate-400 font-medium">$</span>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  placeholder="e.g. 2000"
-                  defaultValue={settings.monthlyBudget ?? ''}
-                  onBlur={(e) => {
-                    const val = parseFloat(e.target.value);
-                    saveSettings({ ...settings, monthlyBudget: isNaN(val) || val <= 0 ? undefined : val });
-                  }}
-                  className={`w-full pl-8 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-${themeColor}-500 outline-none text-lg font-semibold`}
-                />
+          {/* Add new envelope */}
+          <form onSubmit={addEnvelope} className="bg-white p-6 rounded-3xl border border-slate-200 space-y-3">
+            <h3 className="font-black text-slate-800">Add Envelope</h3>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <input
+                value={newEnvelopeName}
+                onChange={(e) => setNewEnvelopeName(e.target.value)}
+                placeholder="Name (e.g. Travel)"
+                className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none"
+              />
+              <div className="flex gap-1 bg-slate-100 rounded-xl p-1">
+                <button type="button" onClick={() => setNewEnvelopeType('monthly_reset')} className={`px-3 py-2 text-xs font-bold rounded-lg ${newEnvelopeType === 'monthly_reset' ? `bg-white text-${themeColor}-700 shadow-sm` : 'text-slate-400'}`}>Monthly</button>
+                <button type="button" onClick={() => setNewEnvelopeType('sinking_fund')} className={`px-3 py-2 text-xs font-bold rounded-lg ${newEnvelopeType === 'sinking_fund' ? `bg-white text-${themeColor}-700 shadow-sm` : 'text-slate-400'}`}>Sinking</button>
               </div>
+              <button type="submit" className={`px-8 py-3 bg-${themeColor}-600 text-white font-bold rounded-xl`}>Add</button>
             </div>
-          </div>
+          </form>
 
-          <div className="bg-white p-6 rounded-3xl border border-slate-200 space-y-4">
-            <div>
-              <h3 className="font-black text-slate-800 mb-1">Category Budgets</h3>
-              <p className="text-xs text-slate-500 mb-4">Set a monthly limit per category. Leave blank to skip that category.</p>
-            </div>
-            <div className="space-y-3">
-              {Object.keys(settings.categories).map(cat => (
-                <div key={cat} className="flex items-center gap-4">
-                  <span className="text-sm font-bold text-slate-700 w-32 shrink-0">{cat}</span>
-                  <div className="relative flex-1 max-w-xs">
-                    <span className="absolute left-3 top-2.5 text-slate-400 font-medium">$</span>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      placeholder="no limit"
-                      defaultValue={settings.categoryBudgets?.[cat] ?? ''}
-                      onBlur={(e) => {
-                        const val = parseFloat(e.target.value);
-                        const updated = { ...(settings.categoryBudgets || {}) };
-                        if (isNaN(val) || val <= 0) {
-                          delete updated[cat];
-                        } else {
-                          updated[cat] = val;
-                        }
-                        saveSettings({ ...settings, categoryBudgets: updated });
-                      }}
-                      className={`w-full pl-8 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-${themeColor}-500 outline-none font-semibold`}
-                    />
+          {/* Envelope list */}
+          <div className="space-y-3">
+            {envList.length === 0 && (
+              <p className="text-sm text-slate-400 italic px-2">No envelopes yet. Add one above.</p>
+            )}
+            {envList.map(env => (
+              <div key={env.id} className="bg-white p-4 rounded-2xl border border-slate-200 space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <button type="button" onClick={() => setColorPickerId(colorPickerId === env.id ? null : env.id)} className={`w-4 h-4 rounded-full bg-${env.color || 'slate'}-500 shrink-0`} aria-label="Change color" />
+                    <span className="font-bold text-slate-800 truncate">{env.name}</span>
+                  </div>
+                  <div className="flex gap-1 bg-slate-100 rounded-lg p-1 shrink-0">
+                    <button type="button" onClick={() => patchEnvelope(env, { type: 'monthly_reset' })} className={`px-2.5 py-1 text-[11px] font-bold rounded-md ${env.type === 'monthly_reset' ? `bg-white text-${themeColor}-700 shadow-sm` : 'text-slate-400'}`}>Monthly</button>
+                    <button type="button" onClick={() => patchEnvelope(env, { type: 'sinking_fund' })} className={`px-2.5 py-1 text-[11px] font-bold rounded-md ${env.type === 'sinking_fund' ? `bg-white text-${themeColor}-700 shadow-sm` : 'text-slate-400'}`}>Sinking</button>
                   </div>
                 </div>
-              ))}
-            </div>
+
+                {colorPickerId === env.id && (
+                  <div className="grid grid-cols-6 gap-2">
+                    {COLOR_PALETTE.map(c => (
+                      <button key={c} type="button" onClick={() => { patchEnvelope(env, { color: c }); setColorPickerId(null); }} className={`h-8 rounded-lg bg-${c}-500 border-4 ${env.color === c ? 'border-slate-800' : 'border-white'}`} />
+                    ))}
+                  </div>
+                )}
+
+                <div className="flex items-end gap-3 flex-wrap">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">{env.type === 'sinking_fund' ? 'Monthly top-up' : 'Monthly limit'}</label>
+                    <div className="relative w-36">
+                      <span className="absolute left-3 top-2 text-slate-400 text-sm">$</span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        placeholder="0"
+                        defaultValue={env.monthly_amount || ''}
+                        onBlur={(e) => { const v = parseFloat(e.target.value); patchEnvelope(env, { monthly_amount: isNaN(v) || v < 0 ? 0 : v }); }}
+                        className={`w-full pl-7 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-${themeColor}-500 outline-none font-semibold`}
+                      />
+                    </div>
+                  </div>
+                  {env.type === 'sinking_fund' && (
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">Fund balance</label>
+                      <div className="relative w-36">
+                        <span className="absolute left-3 top-2 text-slate-400 text-sm">$</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          placeholder="0"
+                          defaultValue={env.balance || ''}
+                          onBlur={(e) => { const v = parseFloat(e.target.value); patchEnvelope(env, { balance: isNaN(v) ? 0 : v }); }}
+                          className={`w-full pl-7 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-${themeColor}-500 outline-none font-semibold`}
+                        />
+                      </div>
+                    </div>
+                  )}
+                  <button type="button" onClick={() => deleteEnvelope(env)} className="ml-auto px-3 py-2 text-rose-600 text-sm font-bold rounded-xl hover:bg-rose-50">Delete</button>
+                </div>
+              </div>
+            ))}
           </div>
+
+          <p className="text-[11px] text-slate-400 px-2 leading-relaxed">
+            <strong>Monthly</strong> envelopes reset each month (a spending limit). <strong>Sinking</strong> funds carry a balance you top up monthly and draw down for big one-off expenses (e.g. Travel, Insurance) — you set the balance yourself here.
+          </p>
         </div>
       )}
 

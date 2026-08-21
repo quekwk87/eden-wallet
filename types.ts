@@ -30,8 +30,23 @@ export interface Balances {
 }
 
 export interface MonthlyData {
-  month: string;
+  sortKey: string;   // 'YYYY-MM' for sorting/filtering
+  month: string;     // display label e.g. 'Aug 2026'
   amount: number;
+}
+
+export type EnvelopeType = 'monthly_reset' | 'sinking_fund';
+
+export interface Envelope {
+  id: string;
+  ledger: string;
+  name: string;
+  type: EnvelopeType;
+  monthly_amount: number;  // monthly limit (reset) or monthly contribution (sinking)
+  balance: number;         // accumulated balance — sinking funds only; user-set (source of truth)
+  color: string | null;
+  sort_order: number;
+  active: boolean;
 }
 
 export type CategoryMap = Record<string, string[]>;
@@ -50,6 +65,7 @@ export interface WorkspaceSettings {
   defaultSubCategories: Record<string, string>;
   monthlyBudget?: number;
   categoryBudgets?: Record<string, number>;
+  budgetsMigrated?: boolean;   // set true once old categoryBudgets are copied into envelopes
 }
 
 export type AppTab = 'add' | 'history' | 'analytics' | 'settings';

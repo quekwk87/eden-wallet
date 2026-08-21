@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import type { Transaction, CategoryMap, AccountConfig } from '../types';
+import type { Transaction, CategoryMap, AccountConfig, Envelope } from '../types';
 import { getLocalDateString } from '../utils';
 
 const currentMonthKey = () => {
@@ -8,82 +8,74 @@ const currentMonthKey = () => {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 };
 
-const BudgetStrip: React.FC<{
+// Shows the envelope for the currently-selected category:
+//  - monthly_reset: spent-this-month vs limit bar (pass/fail)
+//  - sinking_fund: calm fund-balance view (balance, drawn this month, remaining) — no red alarm
+const EnvelopeStrip: React.FC<{
   transactions: Transaction[];
   spending_category: string;
-  monthlyBudget?: number;
-  categoryBudgets?: Record<string, number>;
+  envelopes?: Envelope[];
   themeColor: string;
-}> = ({ transactions, spending_category, monthlyBudget, categoryBudgets, themeColor }) => {
-  const monthKey = currentMonthKey();
-  const currentMonthTxs = transactions.filter(t => {
-    const d = new Date(t.date);
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` === monthKey;
-  });
+}> = ({ transactions, spending_category, envelopes, themeColor }) => {
+  const env = (envelopes || []).find(e => e.name === spending_category);
+  if (!env) return null;
 
-  const totalSpent = currentMonthTxs.reduce((s, t) => s + t.amount, 0);
-  const categorySpent = currentMonthTxs
-    .filter(t => t.spending_category === spending_category)
+  const monthKey = currentMonthKey();
+  const spentThisMonth = transactions
+    .filter(t => {
+      const d = new Date(t.date);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` === monthKey
+        && t.spending_category === spending_category;
+    })
     .reduce((s, t) => s + t.amount, 0);
 
-  const catBudget = categoryBudgets?.[spending_category];
-  const hasTotalBudget = monthlyBudget !== undefined && monthlyBudget > 0;
-  const hasCatBudget = catBudget !== undefined && catBudget > 0;
+  const monthLabel = new Date().toLocaleString('default', { month: 'long', year: 'numeric' });
 
-  if (!hasTotalBudget && !hasCatBudget) return null;
+  if (env.type === 'monthly_reset') {
+    const limit = env.monthly_amount;
+    if (!limit || limit <= 0) return null;   // no limit set — nothing to show
+    const p = (spentThisMonth / limit) * 100;
+    const barColor = p >= 100 ? 'bg-rose-500' : p >= 80 ? 'bg-amber-400' : `bg-${themeColor}-500`;
+    const amtColor = p >= 100 ? 'text-rose-600' : p >= 80 ? 'text-amber-600' : 'text-slate-700';
+    const remaining = limit - spentThisMonth;
+    const status = remaining < 0 ? `$${Math.abs(remaining).toFixed(2)} over` : `$${remaining.toFixed(2)} left`;
+    return (
+      <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 space-y-2">
+        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{env.name} · Monthly · {monthLabel}</p>
+        <div className="flex justify-between items-baseline">
+          <span className="text-xs font-bold text-slate-500">Spent</span>
+          <div className="flex items-baseline gap-1.5">
+            <span className={`text-xs font-black ${amtColor}`}>${spentThisMonth.toFixed(2)}</span>
+            <span className="text-[10px] text-slate-400">/ ${limit.toFixed(2)}</span>
+            <span className={`text-[10px] font-bold ${amtColor}`}>· {status}</span>
+          </div>
+        </div>
+        <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden">
+          <div className={`h-full rounded-full transition-all duration-300 ${barColor}`} style={{ width: `${Math.min(p, 100)}%` }} />
+        </div>
+      </div>
+    );
+  }
 
-  const pct = (spent: number, budget: number) => Math.min((spent / budget) * 100, 100);
-  const barColor = (spent: number, budget: number) => {
-    const p = (spent / budget) * 100;
-    if (p >= 100) return 'bg-rose-500';
-    if (p >= 80) return 'bg-amber-400';
-    return `bg-${themeColor}-500`;
-  };
-  const amountColor = (spent: number, budget: number) => {
-    const p = (spent / budget) * 100;
-    if (p >= 100) return 'text-rose-600';
-    if (p >= 80) return 'text-amber-600';
-    return 'text-slate-700';
-  };
-  const statusLabel = (spent: number, budget: number) => {
-    const remaining = budget - spent;
-    if (remaining < 0) return `$${Math.abs(remaining).toFixed(2)} over budget`;
-    return `$${remaining.toFixed(2)} remaining`;
-  };
-
+  // sinking_fund — calm accumulation view; a big draw does NOT trigger a monthly "over budget" alarm
+  const balance = env.balance || 0;
+  const remaining = balance - spentThisMonth;
+  const color = env.color || themeColor;
   return (
-    <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 space-y-3">
-      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Budget · {new Date().toLocaleString('default', { month: 'long', year: 'numeric' })}</p>
-      {hasTotalBudget && (
-        <div>
-          <div className="flex justify-between items-baseline mb-1.5">
-            <span className="text-xs font-bold text-slate-500">Total</span>
-            <div className="flex items-baseline gap-1.5">
-              <span className={`text-xs font-black ${amountColor(totalSpent, monthlyBudget!)}`}>${totalSpent.toFixed(2)}</span>
-              <span className="text-[10px] text-slate-400">/ ${monthlyBudget!.toFixed(2)}</span>
-              <span className={`text-[10px] font-bold ${amountColor(totalSpent, monthlyBudget!)}`}>· {statusLabel(totalSpent, monthlyBudget!)}</span>
-            </div>
-          </div>
-          <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden">
-            <div className={`h-full rounded-full transition-all duration-300 ${barColor(totalSpent, monthlyBudget!)}`} style={{ width: `${pct(totalSpent, monthlyBudget!)}%` }} />
-          </div>
-        </div>
-      )}
-      {hasCatBudget && (
-        <div>
-          <div className="flex justify-between items-baseline mb-1.5">
-            <span className="text-xs font-bold text-slate-500">{spending_category}</span>
-            <div className="flex items-baseline gap-1.5">
-              <span className={`text-xs font-black ${amountColor(categorySpent, catBudget!)}`}>${categorySpent.toFixed(2)}</span>
-              <span className="text-[10px] text-slate-400">/ ${catBudget!.toFixed(2)}</span>
-              <span className={`text-[10px] font-bold ${amountColor(categorySpent, catBudget!)}`}>· {statusLabel(categorySpent, catBudget!)}</span>
-            </div>
-          </div>
-          <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden">
-            <div className={`h-full rounded-full transition-all duration-300 ${barColor(categorySpent, catBudget!)}`} style={{ width: `${pct(categorySpent, catBudget!)}%` }} />
-          </div>
-        </div>
-      )}
+    <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 space-y-2">
+      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{env.name} · Sinking fund</p>
+      <div className="flex justify-between items-baseline">
+        <span className="text-xs font-bold text-slate-500">Fund balance</span>
+        <span className="text-xs font-black text-slate-700">${balance.toFixed(2)}</span>
+      </div>
+      <div className="flex justify-between items-baseline">
+        <span className="text-xs font-bold text-slate-500">Drawn this month</span>
+        <span className="text-xs font-black text-slate-700">${spentThisMonth.toFixed(2)}</span>
+      </div>
+      <div className="flex justify-between items-baseline pt-1 border-t border-slate-200">
+        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Remaining in fund</span>
+        <span className={`text-xs font-black ${remaining < 0 ? 'text-rose-600' : `text-${color}-600`}`}>${remaining.toFixed(2)}</span>
+      </div>
     </div>
   );
 };
@@ -100,8 +92,7 @@ interface TransactionFormProps {
   onSubmit: (t: Omit<Transaction, 'id'>) => void;
   onUpdate: (t: Transaction) => void;
   transactions?: Transaction[];
-  monthlyBudget?: number;
-  categoryBudgets?: Record<string, number>;
+  envelopes?: Envelope[];
 }
 
 const TransactionForm: React.FC<TransactionFormProps> = ({
@@ -116,8 +107,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
   defaultCategory,
   defaultSubCategories,
   transactions,
-  monthlyBudget,
-  categoryBudgets,
+  envelopes,
 }) => {
   const categoryNames = Object.keys(categories);
   const accountEntries = Object.entries(accountConfigs) as [string, AccountConfig][];
@@ -258,11 +248,10 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
       </div>
 
       {transactions && (
-        <BudgetStrip
+        <EnvelopeStrip
           transactions={transactions}
           spending_category={spending_category}
-          monthlyBudget={monthlyBudget}
-          categoryBudgets={categoryBudgets}
+          envelopes={envelopes}
           themeColor={themeColor}
         />
       )}

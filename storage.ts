@@ -1,9 +1,10 @@
 
-import { Transaction, Ledger, WorkspaceSettings, SystemAccountType } from './types';
+import { Transaction, Ledger, WorkspaceSettings, SystemAccountType, Envelope } from './types';
 import { supabase, isSupabaseConfigured } from './supabase';
 
 const LOCAL_STORAGE_KEY = 'eden_wallet_data';
 const LOCAL_SETTINGS_KEY = 'eden_wallet_settings';
+const LOCAL_ENVELOPES_KEY = 'eden_wallet_envelopes';
 const SHARED_USER_ID = '00000000-0000-0000-0000-000000000000';
 
 export const dataStorage = {
@@ -115,13 +116,85 @@ export const dataStorage = {
     if (isSupabaseConfigured && supabase) {
       const { error } = await supabase
         .from('workspace_settings')
-        .upsert({ 
-          user_id: SHARED_USER_ID, 
-          ledger, 
+        .upsert({
+          user_id: SHARED_USER_ID,
+          ledger,
           settings,
         }, { onConflict: 'user_id,ledger' });
-      
+
       if (error) console.error("Cloud Settings Sync Failed:", error.message);
     }
+  },
+
+  /**
+   * Envelopes Logic (budgets + sinking funds)
+   * Mirrors the transaction pattern: Supabase first, localStorage mirror/fallback.
+   * Only active envelopes are returned (delete = set active=false).
+   */
+  async getEnvelopes(ledger: Ledger): Promise<Envelope[]> {
+    if (isSupabaseConfigured && supabase) {
+      try {
+        const { data, error } = await supabase
+          .from('envelopes')
+          .select('*')
+          .eq('user_id', SHARED_USER_ID)
+          .eq('ledger', ledger)
+          .eq('active', true)
+          .order('sort_order', { ascending: true });
+
+        if (!error && data) {
+          localStorage.setItem(`${LOCAL_ENVELOPES_KEY}_${ledger}`, JSON.stringify(data));
+          return data as Envelope[];
+        }
+      } catch (e) {
+        console.error("Cloud Envelope Fetch Failed:", e);
+      }
+    }
+
+    return JSON.parse(localStorage.getItem(`${LOCAL_ENVELOPES_KEY}_${ledger}`) || '[]');
+  },
+
+  async saveEnvelope(env: Omit<Envelope, 'id'>, ledger: Ledger): Promise<Envelope | null> {
+    if (isSupabaseConfigured && supabase) {
+      const { data, error } = await supabase
+        .from('envelopes')
+        .insert([{ ...env, user_id: SHARED_USER_ID, ledger }])
+        .select()
+        .single();
+      if (!error && data) return data as Envelope;
+    }
+
+    // localStorage fallback
+    const created = { ...env, id: crypto.randomUUID(), ledger } as Envelope;
+    const current: Envelope[] = JSON.parse(localStorage.getItem(`${LOCAL_ENVELOPES_KEY}_${ledger}`) || '[]');
+    localStorage.setItem(`${LOCAL_ENVELOPES_KEY}_${ledger}`, JSON.stringify([...current, created]));
+    return created;
+  },
+
+  async updateEnvelope(env: Envelope, ledger: Ledger): Promise<boolean> {
+    if (isSupabaseConfigured && supabase) {
+      const { id, ...fields } = env;
+      const { error } = await supabase
+        .from('envelopes')
+        .update({ ...fields, user_id: SHARED_USER_ID, ledger })
+        .eq('id', id);
+      if (!error) return true;
+    }
+
+    const current: Envelope[] = JSON.parse(localStorage.getItem(`${LOCAL_ENVELOPES_KEY}_${ledger}`) || '[]');
+    const updated = current.map((e) => e.id === env.id ? env : e);
+    localStorage.setItem(`${LOCAL_ENVELOPES_KEY}_${ledger}`, JSON.stringify(updated));
+    return true;
+  },
+
+  async deactivateEnvelope(id: string, ledger: Ledger): Promise<boolean> {
+    if (isSupabaseConfigured && supabase) {
+      await supabase.from('envelopes').update({ active: false }).eq('id', id);
+    }
+
+    const current: Envelope[] = JSON.parse(localStorage.getItem(`${LOCAL_ENVELOPES_KEY}_${ledger}`) || '[]');
+    const filtered = current.filter((e) => e.id !== id);
+    localStorage.setItem(`${LOCAL_ENVELOPES_KEY}_${ledger}`, JSON.stringify(filtered));
+    return true;
   }
 };
