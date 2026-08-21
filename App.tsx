@@ -7,9 +7,10 @@ import AnalyticsDashboard from './components/AnalyticsDashboard';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
 import SettingsManager from './components/SettingsManager';
+import PinLogin from './components/PinLogin';
 import { DEFAULT_SPENDING_CATEGORIES, ACCOUNT_CONFIG } from './constants';
 import { dataStorage } from './storage';
-import { isSupabaseConfigured } from './supabase';
+import { supabase, isSupabaseConfigured } from './supabase';
 
 const App: React.FC = () => {
   const [loading, setLoading] = useState(true);
@@ -29,6 +30,22 @@ const App: React.FC = () => {
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
+
+  // Auth: shared household login. When Supabase isn't configured (offline/local),
+  // there's no cloud data to protect, so we skip the login gate entirely.
+  const [session, setSession] = useState<any>(null);
+  const [authChecked, setAuthChecked] = useState(!isSupabaseConfigured);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || !supabase) return;
+    supabase.auth.getSession().then(({ data }) => { setSession(data.session); setAuthChecked(true); });
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => { setSession(s); setAuthChecked(true); });
+    return () => sub.subscription.unsubscribe();
+  }, []);
+
+  const handleSignOut = async () => {
+    if (supabase) await supabase.auth.signOut();
+  };
 
   const fetchData = async () => {
     setLoading(true);
@@ -93,9 +110,11 @@ const App: React.FC = () => {
     if (savedSettings) setSettings(savedSettings);
   };
 
+  // Fetch data once authenticated (or when offline/unconfigured). Re-runs on
+  // ledger switch and when the session appears after sign-in.
   useEffect(() => {
-    fetchData();
-  }, [currentLedger]);
+    if (!isSupabaseConfigured || session) fetchData();
+  }, [currentLedger, session]);
 
   // Re-fetch fresh settings whenever the user opens the settings tab,
   // so any categories added on another device are loaded before editing.
@@ -157,6 +176,18 @@ const App: React.FC = () => {
   const currentTransactions = isJoint ? jointTransactions : personalTransactions;
   const showForm = activeTab === 'add' || editingTransaction !== null;
 
+  // Auth gate — only when Supabase is configured (production/cloud).
+  if (isSupabaseConfigured && !authChecked) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <div className="animate-spin h-8 w-8 border-4 border-emerald-500 border-t-transparent rounded-full" />
+      </div>
+    );
+  }
+  if (isSupabaseConfigured && !session) {
+    return <PinLogin />;
+  }
+
   return (
     <div className="flex h-screen overflow-hidden bg-slate-50">
       <Sidebar 
@@ -169,11 +200,12 @@ const App: React.FC = () => {
       />
       
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <Header 
-          title={isJoint ? 'Joint' : 'Personal'} 
-          toggleSidebar={() => setIsSidebarOpen(true)} 
+        <Header
+          title={isJoint ? 'Joint' : 'Personal'}
+          toggleSidebar={() => setIsSidebarOpen(true)}
           currentLedger={currentLedger}
           setCurrentLedger={setCurrentLedger}
+          onSignOut={isSupabaseConfigured ? handleSignOut : undefined}
         />
         
         {!isSupabaseConfigured && (
