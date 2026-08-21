@@ -8,7 +8,7 @@ import Sidebar from './components/Sidebar';
 import Header from './components/Header';
 import SettingsManager from './components/SettingsManager';
 import PinLogin from './components/PinLogin';
-import { DEFAULT_SPENDING_CATEGORIES, ACCOUNT_CONFIG } from './constants';
+import { DEFAULT_SPENDING_CATEGORIES, ACCOUNT_CONFIG, LEDGER_META, defaultLedgerForEmail } from './constants';
 import { dataStorage } from './storage';
 import { supabase, isSupabaseConfigured } from './supabase';
 
@@ -17,6 +17,7 @@ const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<AppTab>('add');
   const [currentLedger, setCurrentLedger] = useState<Ledger>(Ledger.PERSONAL);
   const [personalTransactions, setPersonalTransactions] = useState<Transaction[]>([]);
+  const [wifeTransactions, setWifeTransactions] = useState<Transaction[]>([]);
   const [jointTransactions, setJointTransactions] = useState<Transaction[]>([]);
   const [envelopes, setEnvelopes] = useState<Envelope[]>([]);
   
@@ -38,8 +39,15 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (!isSupabaseConfigured || !supabase) return;
-    supabase.auth.getSession().then(({ data }) => { setSession(data.session); setAuthChecked(true); });
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => { setSession(s); setAuthChecked(true); });
+    const { data: sub } = supabase.auth.onAuthStateChange((event, s) => {
+      setSession(s);
+      setAuthChecked(true);
+      // On sign-in (and on an existing session at load), land on the user's own ledger.
+      if (s && (event === 'SIGNED_IN' || event === 'INITIAL_SESSION')) {
+        const def = defaultLedgerForEmail(s.user?.email);
+        if (def) setCurrentLedger(def);
+      }
+    });
     return () => sub.subscription.unsubscribe();
   }, []);
 
@@ -64,11 +72,13 @@ const App: React.FC = () => {
       });
     }
 
-    // Load transactions for BOTH ledgers to support cross-ledger analytics
+    // Load transactions for all three ledgers so switching is instant
     const pTxs = await dataStorage.getTransactions(Ledger.PERSONAL);
+    const wTxs = await dataStorage.getTransactions(Ledger.WIFE);
     const jTxs = await dataStorage.getTransactions(Ledger.JOINT);
 
     setPersonalTransactions(pTxs);
+    setWifeTransactions(wTxs);
     setJointTransactions(jTxs);
 
     // Load envelopes for the current ledger (+ one-time migration of old budgets)
@@ -170,10 +180,12 @@ const App: React.FC = () => {
     setActiveTab('history');
   }
 
-  const isJoint = currentLedger === Ledger.JOINT;
-  const themeColor = isJoint ? 'indigo' : 'emerald';
-  
-  const currentTransactions = isJoint ? jointTransactions : personalTransactions;
+  const themeColor = LEDGER_META[currentLedger].color;
+
+  const currentTransactions =
+    currentLedger === Ledger.JOINT ? jointTransactions
+    : currentLedger === Ledger.WIFE ? wifeTransactions
+    : personalTransactions;
   const showForm = activeTab === 'add' || editingTransaction !== null;
 
   // Auth gate — only when Supabase is configured (production/cloud).
@@ -201,7 +213,7 @@ const App: React.FC = () => {
       
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
         <Header
-          title={isJoint ? 'Joint' : 'Personal'}
+          title={LEDGER_META[currentLedger].label}
           toggleSidebar={() => setIsSidebarOpen(true)}
           currentLedger={currentLedger}
           setCurrentLedger={setCurrentLedger}
@@ -276,8 +288,7 @@ const App: React.FC = () => {
                 )}
                 {activeTab === 'analytics' && !editingTransaction && (
                   <AnalyticsDashboard
-                    personalTransactions={personalTransactions}
-                    jointTransactions={jointTransactions}
+                    transactions={currentTransactions}
                     currentLedger={currentLedger}
                     envelopes={envelopes}
                     monthlyBudget={settings.monthlyBudget}
