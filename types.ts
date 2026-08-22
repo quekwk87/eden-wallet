@@ -2,10 +2,12 @@
 // Standard system keys for logic preservation
 export enum SystemAccountType {
   OWN_EXPENSE = 'OWN_EXPENSE',
-  OWED_TO_NXQ = 'OWED_TO_NXQ',
-  OWED_BY_NXQ = 'OWED_BY_NXQ',
-  OWED_TO_NXQWK = 'OWED_TO_NXQWK',
-  OWED_BY_NXQWK = 'OWED_BY_NXQWK',
+  OWED_TO_NXQ = 'OWED_TO_NXQ',     // owe Monkey (used in Ducky's & Joint ledgers)
+  OWED_BY_NXQ = 'OWED_BY_NXQ',     // Monkey owes
+  OWED_TO_QWK = 'OWED_TO_QWK',     // owe Ducky (used in Monkey's ledger)
+  OWED_BY_QWK = 'OWED_BY_QWK',     // Ducky owes
+  OWED_TO_NXQWK = 'OWED_TO_NXQWK', // owe Joint fund
+  OWED_BY_NXQWK = 'OWED_BY_NXQWK', // Joint fund owes
 }
 
 export enum Ledger {
