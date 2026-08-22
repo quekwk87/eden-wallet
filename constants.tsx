@@ -23,6 +23,8 @@ export function defaultLedgerForEmail(email?: string | null): Ledger | null {
   return found ? found.ledger : null;
 }
 
+// Default labels (Ducky's perspective). Each ledger overrides these with friendly,
+// perspective-correct labels stored per-ledger in workspace_settings.accountConfigs.
 export const ACCOUNT_CONFIG: Record<string, { label: string; color: string; description: string }> = {
   [SystemAccountType.OWN_EXPENSE]: {
     label: 'Personal Spending',
@@ -30,22 +32,32 @@ export const ACCOUNT_CONFIG: Record<string, { label: string; color: string; desc
     description: "Transactions that are purely your own expenses."
   },
   [SystemAccountType.OWED_TO_NXQ]: {
-    label: 'Owed to Wife (NXQ)',
+    label: 'Owed to Monkey',
     color: 'rose',
-    description: "Money you spent that you owe back to NXQ."
+    description: "Money you spent that you owe back to Monkey."
   },
   [SystemAccountType.OWED_BY_NXQ]: {
-    label: 'Owed by Wife (NXQ)',
+    label: 'Owed by Monkey',
     color: 'emerald',
-    description: "Money NXQ owes you (e.g., you paid for her)."
+    description: "Money Monkey owes you (e.g., you paid for her)."
+  },
+  [SystemAccountType.OWED_TO_QWK]: {
+    label: 'Owed to Ducky',
+    color: 'rose',
+    description: "Money you spent that you owe back to Ducky."
+  },
+  [SystemAccountType.OWED_BY_QWK]: {
+    label: 'Owed by Ducky',
+    color: 'emerald',
+    description: "Money Ducky owes you (e.g., you paid for him)."
   },
   [SystemAccountType.OWED_TO_NXQWK]: {
-    label: 'Owed to Shared Fund (NXQWK)',
+    label: 'Owed to Joint Fund',
     color: 'amber',
     description: "Money you owe or need to contribute to the joint fund."
   },
   [SystemAccountType.OWED_BY_NXQWK]: {
-    label: 'Owed by Shared Fund (NXQWK)',
+    label: 'Owed by Joint Fund',
     color: 'violet',
     description: "Money the joint fund owes you (e.g., reimbursements)."
   },

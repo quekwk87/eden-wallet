@@ -40,9 +40,12 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
 
   const isPersonalExpense = (type: string) => {
     if (!isJointMode) {
+      // "Money that came out of my pocket" in a personal ledger: my own spend +
+      // what I fronted and owe back to the partner (Monkey/Ducky) or the joint fund.
       return [
         SystemAccountType.OWN_EXPENSE as string,
         SystemAccountType.OWED_TO_NXQ as string,
+        SystemAccountType.OWED_TO_QWK as string,
         SystemAccountType.OWED_TO_NXQWK as string
       ].includes(type) || type.startsWith('USER_');
     }
