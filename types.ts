@@ -9,8 +9,9 @@ export enum SystemAccountType {
 }
 
 export enum Ledger {
-  PERSONAL = 'QWK',
-  JOINT = 'NXQWK',
+  PERSONAL = 'QWK',   // Ducky (Wee Kiat)
+  WIFE = 'NXQ',       // Monkey (wife)
+  JOINT = 'NXQWK',    // Joint
 }
 
 export interface Transaction {

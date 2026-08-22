@@ -7,15 +7,17 @@ import AnalyticsDashboard from './components/AnalyticsDashboard';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
 import SettingsManager from './components/SettingsManager';
-import { DEFAULT_SPENDING_CATEGORIES, ACCOUNT_CONFIG } from './constants';
+import PinLogin from './components/PinLogin';
+import { DEFAULT_SPENDING_CATEGORIES, ACCOUNT_CONFIG, LEDGER_META, defaultLedgerForEmail } from './constants';
 import { dataStorage } from './storage';
-import { isSupabaseConfigured } from './supabase';
+import { supabase, isSupabaseConfigured } from './supabase';
 
 const App: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<AppTab>('add');
   const [currentLedger, setCurrentLedger] = useState<Ledger>(Ledger.PERSONAL);
   const [personalTransactions, setPersonalTransactions] = useState<Transaction[]>([]);
+  const [wifeTransactions, setWifeTransactions] = useState<Transaction[]>([]);
   const [jointTransactions, setJointTransactions] = useState<Transaction[]>([]);
   const [envelopes, setEnvelopes] = useState<Envelope[]>([]);
   
@@ -29,6 +31,29 @@ const App: React.FC = () => {
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
+
+  // Auth: shared household login. When Supabase isn't configured (offline/local),
+  // there's no cloud data to protect, so we skip the login gate entirely.
+  const [session, setSession] = useState<any>(null);
+  const [authChecked, setAuthChecked] = useState(!isSupabaseConfigured);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || !supabase) return;
+    const { data: sub } = supabase.auth.onAuthStateChange((event, s) => {
+      setSession(s);
+      setAuthChecked(true);
+      // On sign-in (and on an existing session at load), land on the user's own ledger.
+      if (s && (event === 'SIGNED_IN' || event === 'INITIAL_SESSION')) {
+        const def = defaultLedgerForEmail(s.user?.email);
+        if (def) setCurrentLedger(def);
+      }
+    });
+    return () => sub.subscription.unsubscribe();
+  }, []);
+
+  const handleSignOut = async () => {
+    if (supabase) await supabase.auth.signOut();
+  };
 
   const fetchData = async () => {
     setLoading(true);
@@ -47,11 +72,13 @@ const App: React.FC = () => {
       });
     }
 
-    // Load transactions for BOTH ledgers to support cross-ledger analytics
+    // Load transactions for all three ledgers so switching is instant
     const pTxs = await dataStorage.getTransactions(Ledger.PERSONAL);
+    const wTxs = await dataStorage.getTransactions(Ledger.WIFE);
     const jTxs = await dataStorage.getTransactions(Ledger.JOINT);
 
     setPersonalTransactions(pTxs);
+    setWifeTransactions(wTxs);
     setJointTransactions(jTxs);
 
     // Load envelopes for the current ledger (+ one-time migration of old budgets)
@@ -93,9 +120,11 @@ const App: React.FC = () => {
     if (savedSettings) setSettings(savedSettings);
   };
 
+  // Fetch data once authenticated (or when offline/unconfigured). Re-runs on
+  // ledger switch and when the session appears after sign-in.
   useEffect(() => {
-    fetchData();
-  }, [currentLedger]);
+    if (!isSupabaseConfigured || session) fetchData();
+  }, [currentLedger, session]);
 
   // Re-fetch fresh settings whenever the user opens the settings tab,
   // so any categories added on another device are loaded before editing.
@@ -151,11 +180,25 @@ const App: React.FC = () => {
     setActiveTab('history');
   }
 
-  const isJoint = currentLedger === Ledger.JOINT;
-  const themeColor = isJoint ? 'indigo' : 'emerald';
-  
-  const currentTransactions = isJoint ? jointTransactions : personalTransactions;
+  const themeColor = LEDGER_META[currentLedger].color;
+
+  const currentTransactions =
+    currentLedger === Ledger.JOINT ? jointTransactions
+    : currentLedger === Ledger.WIFE ? wifeTransactions
+    : personalTransactions;
   const showForm = activeTab === 'add' || editingTransaction !== null;
+
+  // Auth gate — only when Supabase is configured (production/cloud).
+  if (isSupabaseConfigured && !authChecked) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <div className="animate-spin h-8 w-8 border-4 border-emerald-500 border-t-transparent rounded-full" />
+      </div>
+    );
+  }
+  if (isSupabaseConfigured && !session) {
+    return <PinLogin />;
+  }
 
   return (
     <div className="flex h-screen overflow-hidden bg-slate-50">
@@ -169,11 +212,12 @@ const App: React.FC = () => {
       />
       
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <Header 
-          title={isJoint ? 'Joint' : 'Personal'} 
-          toggleSidebar={() => setIsSidebarOpen(true)} 
+        <Header
+          title={LEDGER_META[currentLedger].label}
+          toggleSidebar={() => setIsSidebarOpen(true)}
           currentLedger={currentLedger}
           setCurrentLedger={setCurrentLedger}
+          onSignOut={isSupabaseConfigured ? handleSignOut : undefined}
         />
         
         {!isSupabaseConfigured && (
@@ -244,8 +288,7 @@ const App: React.FC = () => {
                 )}
                 {activeTab === 'analytics' && !editingTransaction && (
                   <AnalyticsDashboard
-                    personalTransactions={personalTransactions}
-                    jointTransactions={jointTransactions}
+                    transactions={currentTransactions}
                     currentLedger={currentLedger}
                     envelopes={envelopes}
                     monthlyBudget={settings.monthlyBudget}

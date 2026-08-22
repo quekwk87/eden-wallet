@@ -1,6 +1,7 @@
 
 import React from 'react';
 import { AppTab, Ledger } from '../types';
+import { LEDGER_META, LEDGER_ORDER } from '../constants';
 
 interface SidebarProps {
   activeTab: AppTab;
@@ -19,8 +20,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   isOpen, 
   onClose 
 }) => {
-  const isJoint = currentLedger === Ledger.JOINT;
-  const themeColor = isJoint ? 'indigo' : 'emerald';
+  const themeColor = LEDGER_META[currentLedger].color;
 
   const navItems = [
     { id: 'add', label: 'Add Entry', icon: (
@@ -57,26 +57,21 @@ const Sidebar: React.FC<SidebarProps> = ({
 
           <div className="px-4 mb-4">
             <div className="bg-slate-100 p-1 rounded-xl flex gap-1">
-              <button
-                onClick={() => setCurrentLedger(Ledger.PERSONAL)}
-                className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all ${
-                  currentLedger === Ledger.PERSONAL 
-                    ? 'bg-white text-emerald-600 shadow-sm' 
-                    : 'text-slate-500 hover:text-slate-700'
-                }`}
-              >
-                Personal
-              </button>
-              <button
-                onClick={() => setCurrentLedger(Ledger.JOINT)}
-                className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all ${
-                  currentLedger === Ledger.JOINT 
-                    ? 'bg-white text-indigo-600 shadow-sm' 
-                    : 'text-slate-500 hover:text-slate-700'
-                }`}
-              >
-                Joint
-              </button>
+              {LEDGER_ORDER.map((l) => {
+                const active = currentLedger === l;
+                const c = LEDGER_META[l].color;
+                return (
+                  <button
+                    key={l}
+                    onClick={() => setCurrentLedger(l)}
+                    className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all ${
+                      active ? `bg-white text-${c}-600 shadow-sm` : 'text-slate-500 hover:text-slate-700'
+                    }`}
+                  >
+                    {LEDGER_META[l].label}
+                  </button>
+                );
+              })}
             </div>
           </div>
           
@@ -103,7 +98,7 @@ const Sidebar: React.FC<SidebarProps> = ({
           <div className="p-4 border-t border-slate-100">
             <div className="bg-slate-50 rounded-xl p-4">
               <p className="text-xs text-slate-500 mb-1 font-medium">Active Account</p>
-              <p className={`text-sm font-bold text-${themeColor}-700`}>{currentLedger === Ledger.PERSONAL ? 'QWK Personal' : 'NXQWK Joint'}</p>
+              <p className={`text-sm font-bold text-${themeColor}-700`}>{LEDGER_META[currentLedger].label} · {currentLedger}</p>
             </div>
           </div>
         </div>

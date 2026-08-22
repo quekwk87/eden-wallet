@@ -1,13 +1,13 @@
 import React, { useMemo, useState } from 'react';
 import { Ledger, SystemAccountType, Transaction, Balances, MonthlyData, Envelope } from '../types';
+import { LEDGER_META } from '../constants';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   AreaChart, Area, Cell
 } from 'recharts';
 
 interface AnalyticsDashboardProps {
-  personalTransactions: Transaction[];
-  jointTransactions: Transaction[];
+  transactions: Transaction[];   // the current ledger's transactions
   currentLedger: Ledger;
   envelopes?: Envelope[];
   monthlyBudget?: number;
@@ -24,8 +24,7 @@ const getCurrentMonthKey = () => {
 };
 
 const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
-  personalTransactions,
-  jointTransactions,
+  transactions,
   currentLedger,
   envelopes,
   monthlyBudget
@@ -35,8 +34,9 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
   const [drillCategory, setDrillCategory] = useState<string | null>(null);
 
   const isJointMode = currentLedger === Ledger.JOINT;
-  const themeColor = isJointMode ? 'indigo' : 'emerald';
-  const transactions = isJointMode ? jointTransactions : personalTransactions;
+  const themeColor = LEDGER_META[currentLedger].color;
+  const ledgerHex = LEDGER_META[currentLedger].hex;
+  // `transactions` for the current ledger comes in as a prop.
 
   const isPersonalExpense = (type: string) => {
     if (!isJointMode) {
@@ -538,7 +538,7 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                 <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 10, fontWeight: 700}} />
                 <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 10, fontWeight: 700}} />
                 <Tooltip contentStyle={{borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}} />
-                <Area type="monotone" dataKey="amount" stroke={isJointMode ? '#6366f1' : '#10b981'} fillOpacity={0.1} strokeWidth={3} />
+                <Area type="monotone" dataKey="amount" stroke={ledgerHex} fillOpacity={0.1} strokeWidth={3} />
               </AreaChart>
             </ResponsiveContainer>
           </div>
@@ -581,7 +581,7 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                   {spendingByCategory.map((entry, index) => (
                     <Cell
                       key={entry.name}
-                      fill={drillCategory === entry.name ? CATEGORY_COLORS[index % CATEGORY_COLORS.length] : (drillCategory ? '#e2e8f0' : (isJointMode ? '#6366f1' : '#10b981'))}
+                      fill={drillCategory === entry.name ? CATEGORY_COLORS[index % CATEGORY_COLORS.length] : (drillCategory ? '#e2e8f0' : ledgerHex)}
                       opacity={drillCategory && drillCategory !== entry.name ? 0.4 : 1}
                     />
                   ))}

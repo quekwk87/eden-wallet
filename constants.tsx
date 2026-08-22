@@ -1,5 +1,27 @@
 
-import { SystemAccountType } from './types';
+import { SystemAccountType, Ledger } from './types';
+
+// Per-ledger display metadata (label, theme colour, chart hex, avatar initials, subtitle).
+export const LEDGER_META: Record<Ledger, { label: string; color: string; hex: string; initials: string; subtitle: string }> = {
+  [Ledger.PERSONAL]: { label: 'Ducky',  color: 'emerald', hex: '#10b981', initials: 'DK', subtitle: 'Private Workspace' },
+  [Ledger.WIFE]:     { label: 'Monkey', color: 'rose',    hex: '#f43f5e', initials: 'MK', subtitle: 'Private Workspace' },
+  [Ledger.JOINT]:    { label: 'Joint',  color: 'indigo',  hex: '#6366f1', initials: 'JT', subtitle: 'Shared Funds' },
+};
+
+// Order shown in the ledger switcher.
+export const LEDGER_ORDER: Ledger[] = [Ledger.PERSONAL, Ledger.WIFE, Ledger.JOINT];
+
+// Shared household logins. Each person's login lands on their own ledger by default,
+// but both can switch to all three (data is shared).
+export const LOGIN_USERS: { name: string; email: string; ledger: Ledger; color: string }[] = [
+  { name: 'Ducky',  email: 'quekwk@gmail.com',    ledger: Ledger.PERSONAL, color: 'emerald' },
+  { name: 'Monkey', email: 'xueqin.ng@gmail.com', ledger: Ledger.WIFE,     color: 'rose' },
+];
+
+export function defaultLedgerForEmail(email?: string | null): Ledger | null {
+  const found = LOGIN_USERS.find(u => u.email === (email || '').toLowerCase());
+  return found ? found.ledger : null;
+}
 
 export const ACCOUNT_CONFIG: Record<string, { label: string; color: string; description: string }> = {
   [SystemAccountType.OWN_EXPENSE]: {
