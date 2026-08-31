@@ -4,6 +4,7 @@ import { Transaction, AppTab, WorkspaceSettings, Ledger, SystemAccountType, Enve
 import TransactionForm from './components/TransactionForm';
 import TransactionList from './components/TransactionList';
 import AnalyticsDashboard from './components/AnalyticsDashboard';
+import AiAnalyzer from './components/AiAnalyzer';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
 import SettingsManager from './components/SettingsManager';
@@ -292,6 +293,15 @@ const App: React.FC = () => {
                     currentLedger={currentLedger}
                     envelopes={envelopes}
                     monthlyBudget={settings.monthlyBudget}
+                  />
+                )}
+                {activeTab === 'ai' && !editingTransaction && (
+                  <AiAnalyzer
+                    currentLedger={currentLedger}
+                    personalTransactions={personalTransactions}
+                    wifeTransactions={wifeTransactions}
+                    jointTransactions={jointTransactions}
+                    themeColor={themeColor}
                   />
                 )}
                 {activeTab === 'settings' && !editingTransaction && (
