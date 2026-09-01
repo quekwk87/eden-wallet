@@ -23,6 +23,50 @@ export function defaultLedgerForEmail(email?: string | null): Ledger | null {
   return found ? found.ledger : null;
 }
 
+// The wife's login email — used to show her a friendlier "Paid by…" wording.
+export const MONKEY_EMAIL = (LOGIN_USERS.find(u => u.ledger === Ledger.WIFE)?.email || '').toLowerCase();
+
+// Display-only relabelling shown ONLY when Monkey is the logged-in viewer. The stored
+// Supabase labels stay "Owed…" for everyone; this rewrites the on-screen text per ledger to
+// a "Paid by <who paid> for <who owes it back>" perspective. Editing (Settings) is unaffected.
+export const MONKEY_LABEL_OVERRIDES: Record<Ledger, Partial<Record<SystemAccountType, string>>> = {
+  [Ledger.PERSONAL]: { // QWK — Ducky's ledger
+    [SystemAccountType.OWED_TO_NXQ]:   'Paid by Monkey for Ducky',
+    [SystemAccountType.OWED_BY_NXQ]:   'Paid by Ducky for Monkey',
+    [SystemAccountType.OWED_TO_NXQWK]: 'Paid by Joint for Ducky',
+    [SystemAccountType.OWED_BY_NXQWK]: 'Paid by Ducky for Joint',
+  },
+  [Ledger.WIFE]: { // NXQ — Monkey's ledger
+    [SystemAccountType.OWED_BY_QWK]:   'Paid by Monkey for Ducky',
+    [SystemAccountType.OWED_TO_QWK]:   'Paid by Ducky for Monkey',
+    [SystemAccountType.OWED_BY_NXQWK]: 'Paid by Monkey for Joint',
+    [SystemAccountType.OWED_TO_NXQWK]: 'Paid by Joint for Monkey',
+  },
+  [Ledger.JOINT]: { // NXQWK — Joint ledger
+    [SystemAccountType.OWED_BY_NXQ]:   'Paid by Joint for Monkey',
+    [SystemAccountType.OWED_TO_NXQ]:   'Paid by Monkey for Joint',
+    [SystemAccountType.OWED_BY_NXQWK]: 'Paid by Ducky for Joint',
+    [SystemAccountType.OWED_TO_NXQWK]: 'Paid by Joint for Ducky',
+  },
+};
+
+// Returns accountConfigs with Monkey's "Paid by…" labels when she is the viewer; otherwise
+// the configs are returned unchanged. Only the label text is swapped — colour/description stay.
+export const perspectiveAccountConfigs = (
+  configs: Record<string, { label: string; color: string; description: string }>,
+  ledger: Ledger,
+  isMonkey: boolean
+): Record<string, { label: string; color: string; description: string }> => {
+  if (!isMonkey) return configs;
+  const overrides = MONKEY_LABEL_OVERRIDES[ledger] || {};
+  const out: Record<string, { label: string; color: string; description: string }> = {};
+  for (const [key, cfg] of Object.entries(configs)) {
+    const label = overrides[key as SystemAccountType];
+    out[key] = label ? { ...cfg, label } : cfg;
+  }
+  return out;
+};
+
 // Default labels (Ducky's perspective). Each ledger overrides these with friendly,
 // perspective-correct labels stored per-ledger in workspace_settings.accountConfigs.
 export const ACCOUNT_CONFIG: Record<string, { label: string; color: string; description: string }> = {

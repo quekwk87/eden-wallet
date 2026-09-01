@@ -8,7 +8,7 @@ import Sidebar from './components/Sidebar';
 import Header from './components/Header';
 import SettingsManager from './components/SettingsManager';
 import PinLogin from './components/PinLogin';
-import { DEFAULT_SPENDING_CATEGORIES, ACCOUNT_CONFIG, LEDGER_META, defaultLedgerForEmail } from './constants';
+import { DEFAULT_SPENDING_CATEGORIES, ACCOUNT_CONFIG, LEDGER_META, defaultLedgerForEmail, MONKEY_EMAIL, perspectiveAccountConfigs } from './constants';
 import { dataStorage } from './storage';
 import { supabase, isSupabaseConfigured } from './supabase';
 
@@ -188,6 +188,12 @@ const App: React.FC = () => {
     : personalTransactions;
   const showForm = activeTab === 'add' || editingTransaction !== null;
 
+  // Display-only: when Monkey is the logged-in viewer, show "Paid by…" wording on account
+  // labels across every ledger she opens. Backend labels stay "Owed…"; Settings editing is
+  // unaffected (it uses settings.accountConfigs directly).
+  const isMonkey = (session?.user?.email || '').toLowerCase() === MONKEY_EMAIL;
+  const displayAccountConfigs = perspectiveAccountConfigs(settings.accountConfigs, currentLedger, isMonkey);
+
   // Auth gate — only when Supabase is configured (production/cloud).
   if (isSupabaseConfigured && !authChecked) {
     return (
@@ -264,7 +270,7 @@ const App: React.FC = () => {
                         onUpdate={handleUpdateTransaction}
                         categories={settings.categories}
                         themeColor={themeColor}
-                        accountConfigs={settings.accountConfigs}
+                        accountConfigs={displayAccountConfigs}
                         defaultAccountType={settings.defaultAccountType}
                         defaultCategory={settings.defaultCategory}
                         defaultSubCategories={settings.defaultSubCategories}
@@ -281,8 +287,8 @@ const App: React.FC = () => {
                     <TransactionList 
                       transactions={currentTransactions} 
                       onDelete={handleDelete} 
-                      onEdit={handleEdit} 
-                      accountConfigs={settings.accountConfigs} 
+                      onEdit={handleEdit}
+                      accountConfigs={displayAccountConfigs}
                     />
                   </section>
                 )}
