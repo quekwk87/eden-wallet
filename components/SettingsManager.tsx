@@ -247,7 +247,7 @@ WITH CHECK (user_id = '00000000-0000-0000-0000-000000000000');`;
 
                 <div className="flex items-end gap-3 flex-wrap">
                   <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">{env.type === 'sinking_fund' ? 'Monthly top-up' : 'Monthly limit'}</label>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">{env.type === 'sinking_fund' ? 'Monthly contribution' : 'Monthly limit'}</label>
                     <div className="relative w-36">
                       <span className="absolute left-3 top-2 text-slate-400 text-sm">$</span>
                       <input
@@ -263,7 +263,7 @@ WITH CHECK (user_id = '00000000-0000-0000-0000-000000000000');`;
                   </div>
                   {env.type === 'sinking_fund' && (
                     <div>
-                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">Fund balance</label>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1">Fund balance (start of year)</label>
                       <div className="relative w-36">
                         <span className="absolute left-3 top-2 text-slate-400 text-sm">$</span>
                         <input

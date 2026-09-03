@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import type { Transaction, CategoryMap, AccountConfig, Envelope } from '../types';
-import { getLocalDateString } from '../utils';
+import { getLocalDateString, sinkingFundNow, drawnThisYear, monthsElapsedThisYear } from '../utils';
 
 const currentMonthKey = () => {
   const now = new Date();
@@ -57,24 +57,24 @@ const EnvelopeStrip: React.FC<{
     );
   }
 
-  // sinking_fund — calm accumulation view; a big draw does NOT trigger a monthly "over budget" alarm
-  const balance = env.balance || 0;
-  const remaining = balance - spentThisMonth;
+  // sinking_fund — calm accumulation view; balance now = start-of-year + contributions − draws (this year)
   const color = env.color || themeColor;
+  const startOfYear = env.balance || 0;
+  const monthly = env.monthly_amount || 0;
+  const contributed = monthly * monthsElapsedThisYear();
+  const drawnYtd = drawnThisYear(env.name, transactions);
+  const now = sinkingFundNow(env, transactions);
   return (
     <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 space-y-2">
       <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{env.name} · Sinking fund</p>
       <div className="flex justify-between items-baseline">
-        <span className="text-xs font-bold text-slate-500">Fund balance</span>
-        <span className="text-xs font-black text-slate-700">${balance.toFixed(2)}</span>
+        <span className="text-xs font-bold text-slate-500">Fund balance now</span>
+        <span className={`text-sm font-black ${now < 0 ? 'text-rose-600' : `text-${color}-600`}`}>${now.toFixed(2)}</span>
       </div>
-      <div className="flex justify-between items-baseline">
-        <span className="text-xs font-bold text-slate-500">Drawn this month</span>
-        <span className="text-xs font-black text-slate-700">${spentThisMonth.toFixed(2)}</span>
-      </div>
-      <div className="flex justify-between items-baseline pt-1 border-t border-slate-200">
-        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Remaining in fund</span>
-        <span className={`text-xs font-black ${remaining < 0 ? 'text-rose-600' : `text-${color}-600`}`}>${remaining.toFixed(2)}</span>
+      <div className="text-[10px] text-slate-400 space-y-0.5 pt-1.5 border-t border-slate-200">
+        <div className="flex justify-between"><span>Start of year</span><span>${startOfYear.toFixed(2)}</span></div>
+        <div className="flex justify-between"><span>+ Contributed ({monthsElapsedThisYear()} × ${monthly.toFixed(2)})</span><span>${contributed.toFixed(2)}</span></div>
+        <div className="flex justify-between"><span>− Drawn this year</span><span>${drawnYtd.toFixed(2)}</span></div>
       </div>
     </div>
   );

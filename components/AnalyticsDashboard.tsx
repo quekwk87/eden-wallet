@@ -5,6 +5,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   AreaChart, Area, Cell
 } from 'recharts';
+import { sinkingFundNow, totalMonthlyEnvelopes } from '../utils';
 
 interface AnalyticsDashboardProps {
   transactions: Transaction[];   // the current ledger's transactions
@@ -389,9 +390,8 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                   );
                 }
 
-                // sinking_fund — balance / drawn / remaining (calm, no over-budget alarm)
-                const balance = env.balance || 0;
-                const remaining = balance - spent;
+                // sinking_fund — calculated balance now (start-of-year + contributions − draws this year)
+                const now = sinkingFundNow(env, transactions);
                 return (
                   <div key={env.id} className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -400,14 +400,22 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                       <span className="text-[9px] font-black bg-slate-100 text-slate-400 px-1.5 py-0.5 rounded-full uppercase tracking-wider">Fund</span>
                     </div>
                     <div className="text-right">
-                      <span className={`text-xs font-black ${remaining < 0 ? 'text-rose-600' : 'text-slate-700'}`}>${remaining.toFixed(2)}</span>
-                      <span className="text-[10px] text-slate-400"> left</span>
-                      <p className="text-[10px] font-semibold text-slate-400">${balance.toFixed(2)} fund · ${spent.toFixed(2)} drawn</p>
+                      <span className={`text-xs font-black ${now < 0 ? 'text-rose-600' : 'text-slate-700'}`}>${now.toFixed(2)}</span>
+                      <span className="text-[10px] text-slate-400"> now</span>
+                      <p className="text-[10px] font-semibold text-slate-400">${(env.balance || 0).toFixed(2)} start · +${(env.monthly_amount || 0).toFixed(2)}/mo</p>
                     </div>
                   </div>
                 );
               })}
             </div>
+
+            {/* Total monthly commitment across all envelopes */}
+            {envelopes.length > 0 && (
+              <div className="mt-5 pt-3 border-t-2 border-slate-100 flex items-center justify-between">
+                <span className="text-xs font-black text-slate-500 uppercase tracking-wider">Total Monthly</span>
+                <span className="text-sm font-black text-slate-800">${totalMonthlyEnvelopes(envelopes).toFixed(2)}<span className="text-[10px] font-bold text-slate-400"> /mo</span></span>
+              </div>
+            )}
           </section>
         );
       })()}
