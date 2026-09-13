@@ -136,6 +136,11 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
   const [selectedAccount, setSelectedAccount] = useState<string>(initialAccount);
   const [remarks, setRemarks] = useState(transaction?.remarks || '');
 
+  // Entering/exiting edit mode: load the transaction being edited, or reset to a
+  // blank new-entry form. Deliberately keyed only on `transaction` — workspace
+  // settings (categories/accountConfigs/defaultAccountType) can still be loading
+  // in the background when this form first appears, and re-running this full
+  // reset every time they arrive would wipe out anything the user already typed.
   useEffect(() => {
     if (transaction) {
       setAmount(transaction.amount.toString());
@@ -156,7 +161,23 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
       setSelectedAccount(accountConfigs[defaultAccountType] ? defaultAccountType : (accountEntries[0]?.[0] || ''));
       setRemarks('');
     }
-  }, [transaction, defaultAccountType, accountConfigs, categories]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [transaction]);
+
+  // Workspace settings (real categories/account labels) can finish loading shortly
+  // after this form first renders with placeholder defaults. Pick up the fresh
+  // values once they arrive, but only while the form is still untouched — never
+  // clobber an amount/remarks the user has already started typing.
+  useEffect(() => {
+    if (transaction || amount || remarks) return;
+    const initCat = (defaultCategory && categories[defaultCategory]) ? defaultCategory : (categoryNames[0] || '');
+    const defSub = defaultSubCategories?.[initCat];
+    const initSub = (defSub && categories[initCat]?.includes(defSub)) ? defSub : (categories[initCat]?.[0] || '');
+    setSpendingCategory(initCat);
+    setSubCategory(initSub);
+    setSelectedAccount(accountConfigs[defaultAccountType] ? defaultAccountType : (accountEntries[0]?.[0] || ''));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [categories, accountConfigs, defaultAccountType, defaultCategory, defaultSubCategories]);
 
   useEffect(() => {
     if (!transaction || spending_category !== transaction.spending_category) {
