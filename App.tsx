@@ -238,56 +238,62 @@ const App: React.FC = () => {
 
         <div className="flex-1 overflow-y-auto p-4 md:p-8">
           <div className="max-w-6xl mx-auto">
-            {loading ? (
+            {/* The Add/Edit form never waits on the ledger/analytics fetch — it renders
+                immediately with whatever settings are available so far, and picks up
+                real categories/envelopes as soon as the background fetch resolves. */}
+            {showForm && (
+              <div className="max-w-2xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                <section className="bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-slate-200">
+                  <div className="flex items-center justify-between mb-6">
+                    <h2 className="text-lg font-bold flex items-center gap-2 text-slate-800">
+                      <div className={`w-8 h-8 bg-${themeColor}-500 rounded-lg flex items-center justify-center text-white`}>
+                        {editingTransaction ?
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002 2v-5M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" /></svg>
+                          : <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 4v16m8-8H4" /></svg>
+                        }
+                      </div>
+                      {editingTransaction ? 'Edit' : 'Add'} Entry
+                    </h2>
+                    <span className="text-[10px] font-black text-slate-300 uppercase tracking-[0.2em]">{currentLedger}</span>
+                  </div>
+                  <TransactionForm
+                    onSubmit={handleAddTransaction}
+                    onUpdate={handleUpdateTransaction}
+                    categories={settings.categories}
+                    themeColor={themeColor}
+                    accountConfigs={settings.accountConfigs}
+                    defaultAccountType={settings.defaultAccountType}
+                    defaultCategory={settings.defaultCategory}
+                    defaultSubCategories={settings.defaultSubCategories}
+                    transaction={editingTransaction}
+                    onCancel={handleCancelEdit}
+                    transactions={currentTransactions}
+                    envelopes={envelopes}
+                  />
+                </section>
+              </div>
+            )}
+
+            {!showForm && loading && (
               <div className="flex flex-col items-center justify-center h-64 gap-4">
                 <div className={`animate-spin h-8 w-8 border-4 border-${themeColor}-500 border-t-transparent rounded-full`}></div>
                 <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Updating Ledger...</p>
               </div>
-            ) : (
+            )}
+
+            {!showForm && !loading && (
               <>
-                {showForm && (
-                  <div className="max-w-2xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                    <section className="bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-slate-200">
-                      <div className="flex items-center justify-between mb-6">
-                        <h2 className="text-lg font-bold flex items-center gap-2 text-slate-800">
-                          <div className={`w-8 h-8 bg-${themeColor}-500 rounded-lg flex items-center justify-center text-white`}>
-                            {editingTransaction ? 
-                              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002 2v-5M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" /></svg>
-                              : <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M12 4v16m8-8H4" /></svg>
-                            }
-                          </div>
-                          {editingTransaction ? 'Edit' : 'Add'} Entry
-                        </h2>
-                        <span className="text-[10px] font-black text-slate-300 uppercase tracking-[0.2em]">{currentLedger}</span>
-                      </div>
-                      <TransactionForm
-                        onSubmit={handleAddTransaction}
-                        onUpdate={handleUpdateTransaction}
-                        categories={settings.categories}
-                        themeColor={themeColor}
-                        accountConfigs={settings.accountConfigs}
-                        defaultAccountType={settings.defaultAccountType}
-                        defaultCategory={settings.defaultCategory}
-                        defaultSubCategories={settings.defaultSubCategories}
-                        transaction={editingTransaction}
-                        onCancel={handleCancelEdit}
-                        transactions={currentTransactions}
-                        envelopes={envelopes}
-                      />
-                    </section>
-                  </div>
-                )}
-                {activeTab === 'history' && !editingTransaction && (
+                {activeTab === 'history' && (
                   <section className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
-                    <TransactionList 
-                      transactions={currentTransactions} 
-                      onDelete={handleDelete} 
-                      onEdit={handleEdit} 
-                      accountConfigs={settings.accountConfigs} 
+                    <TransactionList
+                      transactions={currentTransactions}
+                      onDelete={handleDelete}
+                      onEdit={handleEdit}
+                      accountConfigs={settings.accountConfigs}
                     />
                   </section>
                 )}
-                {activeTab === 'analytics' && !editingTransaction && (
+                {activeTab === 'analytics' && (
                   <AnalyticsDashboard
                     transactions={currentTransactions}
                     currentLedger={currentLedger}
@@ -295,7 +301,7 @@ const App: React.FC = () => {
                     monthlyBudget={settings.monthlyBudget}
                   />
                 )}
-                {activeTab === 'ai' && !editingTransaction && (
+                {activeTab === 'ai' && (
                   <AiAnalyzer
                     currentLedger={currentLedger}
                     personalTransactions={personalTransactions}
@@ -304,7 +310,7 @@ const App: React.FC = () => {
                     themeColor={themeColor}
                   />
                 )}
-                {activeTab === 'settings' && !editingTransaction && (
+                {activeTab === 'settings' && (
                   <SettingsManager
                     settings={settings}
                     setSettings={handleUpdateSettings}
