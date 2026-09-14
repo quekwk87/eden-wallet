@@ -1,5 +1,5 @@
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Ledger } from '../types';
 import { LEDGER_META, LEDGER_ORDER } from '../constants';
 
@@ -14,6 +14,15 @@ interface HeaderProps {
 const Header: React.FC<HeaderProps> = ({ title, toggleSidebar, currentLedger, setCurrentLedger, onSignOut }) => {
   const meta = LEDGER_META[currentLedger];
   const themeColor = meta.color;
+
+  const [dark, setDark] = useState<boolean>(() => {
+    const saved = localStorage.getItem('eden-theme');
+    return saved ? saved === 'dark' : window.matchMedia?.('(prefers-color-scheme: dark)').matches || false;
+  });
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', dark);
+    localStorage.setItem('eden-theme', dark ? 'dark' : 'light');
+  }, [dark]);
 
   return (
     <header className="h-16 flex items-center justify-between px-4 md:px-8 bg-white border-b border-slate-200 sticky top-0 z-30">
@@ -54,6 +63,14 @@ const Header: React.FC<HeaderProps> = ({ title, toggleSidebar, currentLedger, se
       </div>
 
       <div className="flex items-center gap-3">
+        <button
+          onClick={() => setDark(d => !d)}
+          className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-50 rounded-lg text-base leading-none"
+          aria-label="Toggle dark mode"
+          title="Toggle dark mode"
+        >
+          {dark ? '☀️' : '🌙'}
+        </button>
         <div className={`w-9 h-9 rounded-full bg-${themeColor}-100 flex items-center justify-center text-${themeColor}-700 text-xs font-black border-2 border-white shadow-sm transition-all`}>
           {meta.initials}
         </div>
