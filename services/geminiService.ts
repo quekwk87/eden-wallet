@@ -7,7 +7,7 @@ const API_KEY = (process.env.GEMINI_API_KEY || process.env.API_KEY) as string | 
 
 export const isAiConfigured = !!API_KEY;
 
-const MODEL = 'gemini-2.5-flash';
+const MODEL = 'gemini-3.6-flash';
 const MAX_ROWS_PER_LEDGER = 3000;
 
 let client: GoogleGenAI | null = null;
