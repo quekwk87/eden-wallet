@@ -223,6 +223,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
             <span className="absolute left-3 top-2.5 text-slate-400 font-medium">$</span>
             <input
               type="number"
+              inputMode="decimal"
               step="0.01"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
