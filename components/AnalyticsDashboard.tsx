@@ -5,7 +5,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   AreaChart, Area, Cell
 } from 'recharts';
-import { sinkingFundNow, totalMonthlyEnvelopes, trueLedgerOf } from '../utils';
+import { sinkingFundNow, totalMonthlyEnvelopes, trueTransactionsFor } from '../utils';
 
 interface AnalyticsDashboardProps {
   transactions: Transaction[];   // the current ledger's own recorded transactions (debt/IOU balances)
@@ -16,8 +16,6 @@ interface AnalyticsDashboardProps {
   envelopes?: Envelope[];
   monthlyBudget?: number;
 }
-
-type SourcedTransaction = Transaction & { __source: Ledger };
 
 const CATEGORY_COLORS = [
   '#10b981', '#6366f1', '#f59e0b', '#ef4444', '#8b5cf6',
@@ -48,15 +46,12 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
   // The ledger's *true* expenses: every transaction across all three ledgers whose
   // account_type says the money is really this ledger's, regardless of which
   // ledger's page it was typed into (e.g. an "Owed by Joint Fund" entry typed on
-  // a personal page belongs here, not on that personal ledger's totals).
-  const trueTransactions: SourcedTransaction[] = useMemo(() => {
-    const tagged: SourcedTransaction[] = [
-      ...personalTransactions.map(t => ({ ...t, __source: Ledger.PERSONAL })),
-      ...wifeTransactions.map(t => ({ ...t, __source: Ledger.WIFE })),
-      ...jointTransactions.map(t => ({ ...t, __source: Ledger.JOINT })),
-    ];
-    return tagged.filter(t => trueLedgerOf(t.__source, t.account_type) === currentLedger);
-  }, [personalTransactions, wifeTransactions, jointTransactions, currentLedger]);
+  // a personal page belongs here, not on that personal ledger's totals). Same
+  // helper the entry-form's envelope meter uses, so the two never disagree.
+  const trueTransactions = useMemo(
+    () => trueTransactionsFor(currentLedger, personalTransactions, wifeTransactions, jointTransactions),
+    [currentLedger, personalTransactions, wifeTransactions, jointTransactions]
+  );
 
   const monthlySpendingData: MonthlyData[] = useMemo(() => {
     const dataMap: Record<string, number> = {};
@@ -157,9 +152,8 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
 
   // Spent per category for the selected month, using each ledger's true expenses
   // (see trueTransactions above) so envelope tracking isn't thrown off by a
-  // cross-ledger entry typed on someone else's page. Note this can now differ
-  // slightly from the entry-form's own EnvelopeStrip meter, which only ever
-  // looks at the ledger's own recorded rows in the moment you're adding one.
+  // cross-ledger entry typed on someone else's page. Matches the entry-form's
+  // own EnvelopeStrip meter, which uses the same trueTransactionsFor helper.
   const spentByCategory = useMemo(() => {
     const m: Record<string, number> = {};
     trueFilteredTransactions.forEach(t => {

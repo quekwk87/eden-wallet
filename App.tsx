@@ -12,6 +12,7 @@ import PinLogin from './components/PinLogin';
 import { DEFAULT_SPENDING_CATEGORIES, ACCOUNT_CONFIG, LEDGER_META, defaultLedgerForEmail, MONKEY_EMAIL, perspectiveAccountConfigs } from './constants';
 import { dataStorage } from './storage';
 import { supabase, isSupabaseConfigured } from './supabase';
+import { trueTransactionsFor } from './utils';
 
 const App: React.FC = () => {
   const [loading, setLoading] = useState(true);
@@ -187,6 +188,11 @@ const App: React.FC = () => {
     currentLedger === Ledger.JOINT ? jointTransactions
     : currentLedger === Ledger.WIFE ? wifeTransactions
     : personalTransactions;
+
+  // Same cross-ledger "true expense" set Analytics uses, so the entry-form's
+  // envelope/budget meter never disagrees with the Analytics tab.
+  const trueCurrentLedgerTransactions = trueTransactionsFor(currentLedger, personalTransactions, wifeTransactions, jointTransactions);
+
   const showForm = activeTab === 'add' || editingTransaction !== null;
 
   // Display-only: when Monkey is the logged-in viewer, show "Paid by…" wording on account
@@ -273,7 +279,7 @@ const App: React.FC = () => {
                     defaultSubCategories={settings.defaultSubCategories}
                     transaction={editingTransaction}
                     onCancel={handleCancelEdit}
-                    transactions={currentTransactions}
+                    transactions={trueCurrentLedgerTransactions}
                     envelopes={envelopes}
                   />
                 </section>

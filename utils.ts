@@ -42,6 +42,34 @@ const OWED_BY_TO_LEDGER: Partial<Record<string, Ledger>> = {
 export const trueLedgerOf = (recordedOn: Ledger, accountType: string): Ledger =>
   OWED_BY_TO_LEDGER[accountType] ?? recordedOn;
 
+export type SourcedTransaction = Transaction & { __source: Ledger };
+
+/** Every transaction across all three ledgers, tagged with which ledger recorded it. */
+export const tagWithSource = (
+  personalTransactions: Transaction[],
+  wifeTransactions: Transaction[],
+  jointTransactions: Transaction[]
+): SourcedTransaction[] => [
+  ...personalTransactions.map(t => ({ ...t, __source: Ledger.PERSONAL })),
+  ...wifeTransactions.map(t => ({ ...t, __source: Ledger.WIFE })),
+  ...jointTransactions.map(t => ({ ...t, __source: Ledger.JOINT })),
+];
+
+/**
+ * Every transaction (from any of the three ledgers) that is truly `ledger`'s
+ * expense — the single source of truth for "how much has this ledger really
+ * spent," used identically by the Analytics tab and the entry-form's envelope
+ * meter so the two never disagree.
+ */
+export const trueTransactionsFor = (
+  ledger: Ledger,
+  personalTransactions: Transaction[],
+  wifeTransactions: Transaction[],
+  jointTransactions: Transaction[]
+): SourcedTransaction[] =>
+  tagWithSource(personalTransactions, wifeTransactions, jointTransactions)
+    .filter(t => trueLedgerOf(t.__source, t.account_type) === ledger);
+
 /** Months contributed so far this calendar year (Jan = 1 … current month). */
 export const monthsElapsedThisYear = (): number => new Date().getMonth() + 1;
 
