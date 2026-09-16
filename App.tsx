@@ -302,6 +302,9 @@ const App: React.FC = () => {
                 {activeTab === 'analytics' && (
                   <AnalyticsDashboard
                     transactions={currentTransactions}
+                    personalTransactions={personalTransactions}
+                    wifeTransactions={wifeTransactions}
+                    jointTransactions={jointTransactions}
                     currentLedger={currentLedger}
                     envelopes={envelopes}
                     monthlyBudget={settings.monthlyBudget}

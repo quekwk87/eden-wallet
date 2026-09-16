@@ -5,14 +5,19 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   AreaChart, Area, Cell
 } from 'recharts';
-import { sinkingFundNow, totalMonthlyEnvelopes } from '../utils';
+import { sinkingFundNow, totalMonthlyEnvelopes, trueLedgerOf } from '../utils';
 
 interface AnalyticsDashboardProps {
-  transactions: Transaction[];   // the current ledger's transactions
+  transactions: Transaction[];   // the current ledger's own recorded transactions (debt/IOU balances)
+  personalTransactions: Transaction[];
+  wifeTransactions: Transaction[];
+  jointTransactions: Transaction[];
   currentLedger: Ledger;
   envelopes?: Envelope[];
   monthlyBudget?: number;
 }
+
+type SourcedTransaction = Transaction & { __source: Ledger };
 
 const CATEGORY_COLORS = [
   '#10b981', '#6366f1', '#f59e0b', '#ef4444', '#8b5cf6',
@@ -26,6 +31,9 @@ const getCurrentMonthKey = () => {
 
 const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
   transactions,
+  personalTransactions,
+  wifeTransactions,
+  jointTransactions,
   currentLedger,
   envelopes,
   monthlyBudget
@@ -34,29 +42,25 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
   const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
   const [drillCategory, setDrillCategory] = useState<string | null>(null);
 
-  const isJointMode = currentLedger === Ledger.JOINT;
   const themeColor = LEDGER_META[currentLedger].color;
   const ledgerHex = LEDGER_META[currentLedger].hex;
-  // `transactions` for the current ledger comes in as a prop.
 
-  const isPersonalExpense = (type: string) => {
-    if (!isJointMode) {
-      // "Money that came out of my pocket" in a personal ledger: my own spend +
-      // what I fronted and owe back to the partner (Monkey/Ducky) or the joint fund.
-      return [
-        SystemAccountType.OWN_EXPENSE as string,
-        SystemAccountType.OWED_TO_NXQ as string,
-        SystemAccountType.OWED_TO_QWK as string,
-        SystemAccountType.OWED_TO_NXQWK as string
-      ].includes(type) || type.startsWith('USER_');
-    }
-    return true;
-  };
+  // The ledger's *true* expenses: every transaction across all three ledgers whose
+  // account_type says the money is really this ledger's, regardless of which
+  // ledger's page it was typed into (e.g. an "Owed by Joint Fund" entry typed on
+  // a personal page belongs here, not on that personal ledger's totals).
+  const trueTransactions: SourcedTransaction[] = useMemo(() => {
+    const tagged: SourcedTransaction[] = [
+      ...personalTransactions.map(t => ({ ...t, __source: Ledger.PERSONAL })),
+      ...wifeTransactions.map(t => ({ ...t, __source: Ledger.WIFE })),
+      ...jointTransactions.map(t => ({ ...t, __source: Ledger.JOINT })),
+    ];
+    return tagged.filter(t => trueLedgerOf(t.__source, t.account_type) === currentLedger);
+  }, [personalTransactions, wifeTransactions, jointTransactions, currentLedger]);
 
   const monthlySpendingData: MonthlyData[] = useMemo(() => {
     const dataMap: Record<string, number> = {};
-    transactions.forEach(t => {
-      if (!isPersonalExpense(t.account_type)) return;
+    trueTransactions.forEach(t => {
       const date = new Date(t.date);
       const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
       dataMap[key] = (dataMap[key] || 0) + t.amount;
@@ -69,7 +73,7 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
         return { sortKey: key, month: label, amount };
       })
       .sort((a, b) => a.sortKey.localeCompare(b.sortKey));
-  }, [transactions, isJointMode]);
+  }, [trueTransactions]);
 
   const handleMonthChange = (month: string) => {
     setSelectedMonth(month);
@@ -77,6 +81,9 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
     setDrillCategory(null);
   };
 
+  // Own-ledger raw rows for the selected month — used only for the debt/IOU
+  // balances below (netNXQ/netNXQWK), which are about what THIS ledger recorded
+  // owing/being owed, not about true expense totals.
   const filteredTransactions = useMemo(() => {
     if (!selectedMonth) return transactions;
     return transactions.filter(t => {
@@ -86,36 +93,41 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
     });
   }, [transactions, selectedMonth]);
 
-  const prevMonthTransactions = useMemo(() => {
+  const trueFilteredTransactions = useMemo(() => {
+    if (!selectedMonth) return trueTransactions;
+    return trueTransactions.filter(t => {
+      const date = new Date(t.date);
+      const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      return key === selectedMonth;
+    });
+  }, [trueTransactions, selectedMonth]);
+
+  const truePrevMonthTransactions = useMemo(() => {
     if (!selectedMonth) return [];
     const [year, month] = selectedMonth.split('-').map(Number);
     const prevDate = new Date(year, month - 2);
     const prevKey = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}`;
-    return transactions.filter(t => {
+    return trueTransactions.filter(t => {
       const date = new Date(t.date);
       const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
       return key === prevKey;
     });
-  }, [transactions, selectedMonth]);
-
+  }, [trueTransactions, selectedMonth]);
 
   const stats: Balances = useMemo(() => {
+    const totalSpent = trueFilteredTransactions.reduce((s, t) => s + t.amount, 0);
     return filteredTransactions.reduce((acc, t) => {
-      if (isPersonalExpense(t.account_type)) acc.totalSpent += t.amount;
       if (t.account_type === SystemAccountType.OWED_BY_NXQ) acc.netNXQ += t.amount;
       if (t.account_type === SystemAccountType.OWED_TO_NXQ) acc.netNXQ -= t.amount;
       if (t.account_type === SystemAccountType.OWED_BY_NXQWK) acc.netNXQWK += t.amount;
       if (t.account_type === SystemAccountType.OWED_TO_NXQWK) acc.netNXQWK -= t.amount;
       return acc;
-    }, { totalSpent: 0, netNXQ: 0, netNXQWK: 0 });
-  }, [filteredTransactions, isJointMode]);
+    }, { totalSpent, netNXQ: 0, netNXQWK: 0 });
+  }, [trueFilteredTransactions, filteredTransactions]);
 
   const prevStats = useMemo(() => {
-    return prevMonthTransactions.reduce((acc, t) => {
-      if (isPersonalExpense(t.account_type)) acc.totalSpent += t.amount;
-      return acc;
-    }, { totalSpent: 0, netNXQ: 0, netNXQWK: 0 });
-  }, [prevMonthTransactions, isJointMode]);
+    return { totalSpent: truePrevMonthTransactions.reduce((s, t) => s + t.amount, 0), netNXQ: 0, netNXQWK: 0 };
+  }, [truePrevMonthTransactions]);
 
   const momDelta = selectedMonth && prevStats.totalSpent > 0
     ? ((stats.totalSpent - prevStats.totalSpent) / prevStats.totalSpent) * 100
@@ -123,17 +135,13 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
 
   const spendingByCategory = useMemo(() => {
     const currentData: Record<string, number> = {};
-    filteredTransactions.forEach(t => {
-      if (isPersonalExpense(t.account_type)) {
-        currentData[t.spending_category] = (currentData[t.spending_category] || 0) + t.amount;
-      }
+    trueFilteredTransactions.forEach(t => {
+      currentData[t.spending_category] = (currentData[t.spending_category] || 0) + t.amount;
     });
 
     const prevData: Record<string, number> = {};
-    prevMonthTransactions.forEach(t => {
-      if (isPersonalExpense(t.account_type)) {
-        prevData[t.spending_category] = (prevData[t.spending_category] || 0) + t.amount;
-      }
+    truePrevMonthTransactions.forEach(t => {
+      prevData[t.spending_category] = (prevData[t.spending_category] || 0) + t.amount;
     });
 
     const total = Object.values(currentData).reduce((a, b) => a + b, 0);
@@ -145,29 +153,30 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
         return { name, value, percentage: total > 0 ? (value / total) * 100 : 0, prevValue, trend };
       })
       .sort((a, b) => b.value - a.value);
-  }, [filteredTransactions, prevMonthTransactions, isJointMode]);
+  }, [trueFilteredTransactions, truePrevMonthTransactions]);
 
-  // Spent per category for the selected month — matches the entry-form EnvelopeStrip
-  // (sums all transactions of the category, regardless of account_type).
+  // Spent per category for the selected month, using each ledger's true expenses
+  // (see trueTransactions above) so envelope tracking isn't thrown off by a
+  // cross-ledger entry typed on someone else's page. Note this can now differ
+  // slightly from the entry-form's own EnvelopeStrip meter, which only ever
+  // looks at the ledger's own recorded rows in the moment you're adding one.
   const spentByCategory = useMemo(() => {
     const m: Record<string, number> = {};
-    filteredTransactions.forEach(t => {
+    trueFilteredTransactions.forEach(t => {
       m[t.spending_category] = (m[t.spending_category] || 0) + t.amount;
     });
     return m;
-  }, [filteredTransactions]);
+  }, [trueFilteredTransactions]);
 
   const subCategoryBreakdown = useMemo(() => {
     const data: Record<string, Record<string, number>> = {};
-    filteredTransactions.forEach(t => {
-      if (isPersonalExpense(t.account_type)) {
-        if (!data[t.spending_category]) data[t.spending_category] = {};
-        const sub = t.sub_category || 'Other';
-        data[t.spending_category][sub] = (data[t.spending_category][sub] || 0) + t.amount;
-      }
+    trueFilteredTransactions.forEach(t => {
+      if (!data[t.spending_category]) data[t.spending_category] = {};
+      const sub = t.sub_category || 'Other';
+      data[t.spending_category][sub] = (data[t.spending_category][sub] || 0) + t.amount;
     });
     return data;
-  }, [filteredTransactions, isJointMode]);
+  }, [trueFilteredTransactions]);
 
   const cutRecommendations = useMemo(() => {
     type RecType = 'high_share' | 'trending_up' | 'top_spender';
@@ -218,10 +227,10 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
   // Transactions for the drilled category
   const drillTransactions = useMemo(() => {
     if (!drillCategory) return [];
-    return filteredTransactions
-      .filter(t => t.spending_category === drillCategory && isPersonalExpense(t.account_type))
+    return trueFilteredTransactions
+      .filter(t => t.spending_category === drillCategory)
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [drillCategory, filteredTransactions, isJointMode]);
+  }, [drillCategory, trueFilteredTransactions]);
 
   const drillColor = drillCategory
     ? CATEGORY_COLORS[spendingByCategory.findIndex(c => c.name === drillCategory) % CATEGORY_COLORS.length]
@@ -391,7 +400,7 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                 }
 
                 // sinking_fund — calculated balance now (start-of-year + contributions − draws this year)
-                const now = sinkingFundNow(env, transactions);
+                const now = sinkingFundNow(env, trueTransactions);
                 return (
                   <div key={env.id} className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -614,7 +623,12 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                   <div key={t.id} className="flex items-center justify-between py-2 border-b border-slate-50 last:border-0">
                     <div className="min-w-0 flex-1">
                       <p className="text-xs font-bold text-slate-700 truncate">{t.remarks || t.sub_category || t.spending_category}</p>
-                      <p className="text-[10px] font-semibold text-slate-400">{new Date(t.date).toLocaleDateString('en-SG', { day: 'numeric', month: 'short' })} · {t.sub_category}</p>
+                      <p className="text-[10px] font-semibold text-slate-400">
+                        {new Date(t.date).toLocaleDateString('en-SG', { day: 'numeric', month: 'short' })} · {t.sub_category}
+                        {t.__source !== currentLedger && (
+                          <span className="ml-1.5 text-slate-300">· via {LEDGER_META[t.__source].label}</span>
+                        )}
+                      </p>
                     </div>
                     <span className="text-sm font-black text-slate-800 ml-3 shrink-0">
                       ${t.amount.toFixed(2)}

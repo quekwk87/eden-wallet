@@ -17,7 +17,30 @@ export const parseLocalDate = (dateStr: string): Date => {
 };
 
 // ── Envelope calculations ──────────────────────────────────────────────────
+import { Ledger, SystemAccountType } from './types';
 import type { Envelope, Transaction } from './types';
+
+// ── Cross-ledger expense ownership ─────────────────────────────────────────
+
+// A transaction's account_type can say the money is really someone else's
+// expense (e.g. "Owed by Joint Fund" recorded on a personal ledger = you
+// fronted cash for a joint expense). Map each "owed by X" type to the ledger
+// that actually bears that expense.
+const OWED_BY_TO_LEDGER: Partial<Record<string, Ledger>> = {
+  [SystemAccountType.OWED_BY_NXQ]: Ledger.WIFE,
+  [SystemAccountType.OWED_BY_QWK]: Ledger.PERSONAL,
+  [SystemAccountType.OWED_BY_NXQWK]: Ledger.JOINT,
+};
+
+/**
+ * Which ledger a transaction's amount economically belongs to, regardless of
+ * which ledger's table it was recorded on. "Owed by X" rows belong to X (you
+ * fronted the cash for X's expense); everything else — OWN_EXPENSE, "owed to
+ * X" (X fronted cash for *your* expense), and custom USER_ types — is a real
+ * expense of the ledger it was recorded on.
+ */
+export const trueLedgerOf = (recordedOn: Ledger, accountType: string): Ledger =>
+  OWED_BY_TO_LEDGER[accountType] ?? recordedOn;
 
 /** Months contributed so far this calendar year (Jan = 1 … current month). */
 export const monthsElapsedThisYear = (): number => new Date().getMonth() + 1;
