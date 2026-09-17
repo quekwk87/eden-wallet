@@ -71,4 +71,9 @@ export interface WorkspaceSettings {
   budgetsMigrated?: boolean;   // set true once old categoryBudgets are copied into envelopes
 }
 
-export type AppTab = 'add' | 'history' | 'analytics' | 'ai' | 'settings';
+export type AppTab = 'add' | 'history' | 'analytics' | 'settings';
+
+export interface ChatMessage {
+  role: 'user' | 'model';
+  text: string;
+}

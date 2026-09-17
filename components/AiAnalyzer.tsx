@@ -1,14 +1,10 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import type { Chat } from '@google/genai';
-import { Ledger, Transaction } from '../types';
+import { ChatMessage, Ledger, Transaction } from '../types';
 import { LEDGER_META } from '../constants';
 import { createExpenseChat, sendExpenseMessage, isAiConfigured, ExpenseDataset } from '../services/geminiService';
-
-interface Message {
-  role: 'user' | 'model';
-  text: string;
-}
+import { dataStorage } from '../storage';
 
 interface AiAnalyzerProps {
   currentLedger: Ledger;
@@ -32,12 +28,16 @@ const AiAnalyzer: React.FC<AiAnalyzerProps> = ({
   jointTransactions,
   themeColor,
 }) => {
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(true);
   const [input, setInput] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const chatRef = useRef<Chat | null>(null);
+  const messagesRef = useRef<ChatMessage[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
 
   const buildDatasets = (): ExpenseDataset[] => [
     { ledger: Ledger.PERSONAL, transactions: personalTransactions },
@@ -45,47 +45,72 @@ const AiAnalyzer: React.FC<AiAnalyzerProps> = ({
     { ledger: Ledger.JOINT, transactions: jointTransactions },
   ];
 
-  const initChat = () => {
+  const rebuildChat = (history: ChatMessage[]) => {
     setError(null);
-    setMessages([]);
     try {
-      chatRef.current = createExpenseChat(buildDatasets(), LEDGER_META[currentLedger].label);
+      chatRef.current = createExpenseChat(buildDatasets(), LEDGER_META[currentLedger].label, history);
     } catch (e: any) {
       chatRef.current = null;
       setError(e?.message || 'Could not start the AI analyzer.');
     }
   };
 
-  // Rebuild the chat (fresh data + reset conversation) whenever the AI tab mounts
-  // or the user switches ledgers, so the assistant's default focus stays correct.
+  // Load this ledger's saved conversation and seed a chat session with it, so
+  // follow-up questions work and the thread survives closing the app.
   useEffect(() => {
-    if (isAiConfigured) initChat();
+    if (!isAiConfigured) return;
+    let cancelled = false;
+    setLoadingHistory(true);
+    dataStorage.getAiConversation(currentLedger).then(history => {
+      if (cancelled) return;
+      setMessages(history);
+      rebuildChat(history);
+      setLoadingHistory(false);
+    });
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentLedger]);
 
+  // Keep the chat's underlying expense data fresh as transactions change
+  // elsewhere in the app, without losing the conversation so far.
+  useEffect(() => {
+    if (!loadingHistory && isAiConfigured) rebuildChat(messagesRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [personalTransactions, wifeTransactions, jointTransactions]);
+
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
-  }, [messages, loading]);
+  }, [messages, sending]);
 
   const handleSend = async (text?: string) => {
     const question = (text ?? input).trim();
-    if (!question || loading) return;
+    if (!question || sending || loadingHistory) return;
     if (!chatRef.current) {
-      initChat();
+      rebuildChat(messagesRef.current);
       if (!chatRef.current) return;
     }
     setInput('');
     setError(null);
-    setMessages(prev => [...prev, { role: 'user', text: question }]);
-    setLoading(true);
+    const withUser: ChatMessage[] = [...messagesRef.current, { role: 'user', text: question }];
+    setMessages(withUser);
+    setSending(true);
     try {
       const answer = await sendExpenseMessage(chatRef.current, question);
-      setMessages(prev => [...prev, { role: 'model', text: answer || "I couldn't work that out — try rephrasing." }]);
+      const withAnswer: ChatMessage[] = [...withUser, { role: 'model', text: answer || "I couldn't work that out — try rephrasing." }];
+      setMessages(withAnswer);
+      dataStorage.saveAiConversation(currentLedger, withAnswer);
     } catch (e: any) {
       setError(e?.message || 'Something went wrong talking to the AI. Please try again.');
     } finally {
-      setLoading(false);
+      setSending(false);
     }
+  };
+
+  const handleClear = () => {
+    setMessages([]);
+    setError(null);
+    rebuildChat([]);
+    dataStorage.saveAiConversation(currentLedger, []);
   };
 
   if (!isAiConfigured) {
@@ -101,30 +126,38 @@ const AiAnalyzer: React.FC<AiAnalyzerProps> = ({
   }
 
   return (
-    <div className="flex flex-col h-[calc(100vh-160px)] max-h-[820px] bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+    <div className="flex flex-col bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
         <div>
-          <h2 className="text-sm font-black text-slate-800 uppercase tracking-widest">AI Expense Analyzer</h2>
+          <h2 className="text-sm font-black text-slate-800 uppercase tracking-widest">Ask Eden</h2>
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">
             Focused on {LEDGER_META[currentLedger].label} · mention another ledger by name to ask about it
           </p>
         </div>
-        <button
-          onClick={initChat}
-          className="text-[10px] font-black text-slate-400 hover:text-slate-600 uppercase tracking-widest flex items-center gap-1 shrink-0"
-          title="Refresh data & clear chat"
-        >
-          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-          </svg>
-          Refresh
-        </button>
+        {messages.length > 0 && (
+          <button
+            onClick={handleClear}
+            className="text-[10px] font-black text-slate-400 hover:text-slate-600 uppercase tracking-widest flex items-center gap-1 shrink-0"
+            title="Clear conversation"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3M5 7h14" />
+            </svg>
+            Clear
+          </button>
+        )}
       </div>
 
       {/* Messages */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
-        {messages.length === 0 && !error && (
+      <div ref={scrollRef} className="h-[380px] overflow-y-auto px-6 py-5 space-y-4">
+        {loadingHistory && (
+          <div className="flex items-center justify-center h-full">
+            <div className={`animate-spin h-6 w-6 border-4 border-${themeColor}-500 border-t-transparent rounded-full`} />
+          </div>
+        )}
+
+        {!loadingHistory && messages.length === 0 && !error && (
           <div className="space-y-4">
             <p className="text-sm text-slate-500">Ask anything about your expenses, or try:</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -141,7 +174,7 @@ const AiAnalyzer: React.FC<AiAnalyzerProps> = ({
           </div>
         )}
 
-        {messages.map((m, i) => (
+        {!loadingHistory && messages.map((m, i) => (
           <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             <div
               className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm whitespace-pre-wrap leading-relaxed ${
@@ -155,7 +188,7 @@ const AiAnalyzer: React.FC<AiAnalyzerProps> = ({
           </div>
         ))}
 
-        {loading && (
+        {sending && (
           <div className="flex justify-start">
             <div className="bg-slate-50 border border-slate-100 rounded-2xl px-4 py-3 flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce [animation-delay:-0.3s]" />
@@ -181,12 +214,13 @@ const AiAnalyzer: React.FC<AiAnalyzerProps> = ({
           type="text"
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Ask about your spending..."
-          className={`flex-1 px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-${themeColor}-500 outline-none text-sm`}
+          placeholder={messages.length > 0 ? 'Ask a follow-up...' : 'Ask about your spending...'}
+          disabled={loadingHistory}
+          className={`flex-1 px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-${themeColor}-500 outline-none text-sm disabled:opacity-50`}
         />
         <button
           type="submit"
-          disabled={loading || !input.trim()}
+          disabled={sending || loadingHistory || !input.trim()}
           className={`px-5 py-2.5 bg-${themeColor}-600 text-white font-bold rounded-xl shadow-lg disabled:opacity-50 text-sm shrink-0`}
         >
           Send

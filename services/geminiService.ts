@@ -1,6 +1,6 @@
 
-import { GoogleGenAI, Chat } from '@google/genai';
-import { Ledger, SystemAccountType, Transaction } from '../types';
+import { GoogleGenAI, Chat, Content } from '@google/genai';
+import { ChatMessage, Ledger, SystemAccountType, Transaction } from '../types';
 import { LEDGER_META } from '../constants';
 
 const API_KEY = (process.env.GEMINI_API_KEY || process.env.API_KEY) as string | undefined;
@@ -91,13 +91,26 @@ Rules for answering:
   return sections ? `${legend}\n${sections}` : `${legend}\n\n(No transactions recorded yet in any ledger.)`;
 };
 
-export const createExpenseChat = (datasets: ExpenseDataset[], activeLedgerLabel: string): Chat => {
+// Converts persisted {role, text} messages into the Content[] shape the SDK
+// wants to seed a chat's prior history. Must start with a 'user' message.
+const toContents = (history: ChatMessage[]): Content[] => {
+  const firstUser = history.findIndex(m => m.role === 'user');
+  const trimmed = firstUser === -1 ? [] : history.slice(firstUser);
+  return trimmed.map(m => ({ role: m.role, parts: [{ text: m.text }] }));
+};
+
+export const createExpenseChat = (
+  datasets: ExpenseDataset[],
+  activeLedgerLabel: string,
+  history: ChatMessage[] = []
+): Chat => {
   const ai = getClient();
   return ai.chats.create({
     model: MODEL,
     config: {
       systemInstruction: buildSystemInstruction(datasets, activeLedgerLabel),
     },
+    history: toContents(history),
   });
 };
 

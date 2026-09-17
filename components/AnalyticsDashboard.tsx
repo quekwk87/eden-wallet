@@ -2,10 +2,10 @@ import React, { useMemo, useState } from 'react';
 import { Ledger, SystemAccountType, Transaction, Balances, MonthlyData, Envelope } from '../types';
 import { LEDGER_META } from '../constants';
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  AreaChart, Area, Cell
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area
 } from 'recharts';
 import { sinkingFundNow, totalMonthlyEnvelopes, trueTransactionsFor } from '../utils';
+import AiAnalyzer from './AiAnalyzer';
 
 interface AnalyticsDashboardProps {
   transactions: Transaction[];   // the current ledger's own recorded transactions (debt/IOU balances)
@@ -17,15 +17,26 @@ interface AnalyticsDashboardProps {
   monthlyBudget?: number;
 }
 
-const CATEGORY_COLORS = [
-  '#10b981', '#6366f1', '#f59e0b', '#ef4444', '#8b5cf6',
-  '#06b6d4', '#f97316', '#ec4899', '#84cc16', '#14b8a6'
-];
+// Tailwind color names cycled for categories that don't have an envelope (and
+// so no explicit color of their own).
+const DOT_COLORS = ['indigo', 'amber', 'rose', 'violet', 'cyan', 'orange', 'pink', 'lime', 'teal', 'blue'];
 
 const getCurrentMonthKey = () => {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 };
+
+// One row per category that either has an envelope (budget) or has spend in the
+// selected period — union of the two, so a budget with zero spend still shows
+// up and a spend with no budget still shows up.
+interface BudgetRow {
+  name: string;
+  envelope?: Envelope;
+  value: number;
+  percentage: number;
+  prevValue: number;
+  trend: number | null;
+}
 
 const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
   transactions,
@@ -38,7 +49,6 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
 }) => {
   const [selectedMonth, setSelectedMonth] = useState<string>(getCurrentMonthKey());
   const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
-  const [drillCategory, setDrillCategory] = useState<string | null>(null);
 
   const themeColor = LEDGER_META[currentLedger].color;
   const ledgerHex = LEDGER_META[currentLedger].hex;
@@ -73,7 +83,6 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
   const handleMonthChange = (month: string) => {
     setSelectedMonth(month);
     setExpandedCategory(null);
-    setDrillCategory(null);
   };
 
   // Own-ledger raw rows for the selected month — used only for the debt/IOU
@@ -150,88 +159,36 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
       .sort((a, b) => b.value - a.value);
   }, [trueFilteredTransactions, truePrevMonthTransactions]);
 
-  // Spent per category for the selected month, using each ledger's true expenses
-  // (see trueTransactions above) so envelope tracking isn't thrown off by a
-  // cross-ledger entry typed on someone else's page. Matches the entry-form's
-  // own EnvelopeStrip meter, which uses the same trueTransactionsFor helper.
-  const spentByCategory = useMemo(() => {
-    const m: Record<string, number> = {};
+  // Transactions for the selected period, grouped by category — powers the
+  // "expand to see individual expenses" list under each budget/category row.
+  const transactionsByCategory = useMemo(() => {
+    const map: Record<string, typeof trueFilteredTransactions> = {};
     trueFilteredTransactions.forEach(t => {
-      m[t.spending_category] = (m[t.spending_category] || 0) + t.amount;
+      (map[t.spending_category] ||= []).push(t);
     });
-    return m;
+    Object.values(map).forEach(arr => arr.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
+    return map;
   }, [trueFilteredTransactions]);
 
-  const subCategoryBreakdown = useMemo(() => {
-    const data: Record<string, Record<string, number>> = {};
-    trueFilteredTransactions.forEach(t => {
-      if (!data[t.spending_category]) data[t.spending_category] = {};
-      const sub = t.sub_category || 'Other';
-      data[t.spending_category][sub] = (data[t.spending_category][sub] || 0) + t.amount;
+  // Merges what used to be three separate sections (Envelopes, Spending
+  // Breakdown, Category Distribution) into one.
+  const budgetRows: BudgetRow[] = useMemo(() => {
+    const rows = new Map<string, BudgetRow>();
+    spendingByCategory.forEach(c => rows.set(c.name, { ...c }));
+    (envelopes || []).forEach(env => {
+      if (!rows.has(env.name)) {
+        rows.set(env.name, { name: env.name, value: 0, percentage: 0, prevValue: 0, trend: null });
+      }
     });
-    return data;
-  }, [trueFilteredTransactions]);
+    const envByName = new Map((envelopes || []).map(e => [e.name, e]));
+    return Array.from(rows.values())
+      .map(r => ({ ...r, envelope: envByName.get(r.name) }))
+      .sort((a, b) => b.value - a.value);
+  }, [spendingByCategory, envelopes]);
 
-  const cutRecommendations = useMemo(() => {
-    type RecType = 'high_share' | 'trending_up' | 'top_spender';
-    const recs: Array<{ category: string; reason: string; type: RecType; amount: number; subTip?: string }> = [];
-    if (spendingByCategory.length === 0) return recs;
-
-    for (const cat of spendingByCategory) {
-      if (cat.percentage > 35) {
-        const subCats = subCategoryBreakdown[cat.name];
-        const topSub = subCats ? Object.entries(subCats).sort((a, b) => b[1] - a[1])[0] : null;
-        recs.push({
-          category: cat.name,
-          reason: `${cat.percentage.toFixed(0)}% of total spending`,
-          type: 'high_share',
-          amount: cat.value,
-          subTip: topSub ? `Biggest sub-category: ${topSub[0]} ($${topSub[1].toFixed(2)})` : undefined,
-        });
-      }
-      if (cat.trend !== null && cat.trend > 25) {
-        recs.push({
-          category: cat.name,
-          reason: `+${cat.trend.toFixed(0)}% vs last month`,
-          type: 'trending_up',
-          amount: cat.value,
-          subTip: cat.prevValue > 0 ? `Was $${cat.prevValue.toFixed(2)}, now $${cat.value.toFixed(2)}` : undefined,
-        });
-      }
-    }
-
-    if (recs.length === 0) {
-      const top = spendingByCategory[0];
-      recs.push({
-        category: top.name,
-        reason: `Your biggest spend this period (${top.percentage.toFixed(0)}%)`,
-        type: 'top_spender',
-        amount: top.value,
-      });
-    }
-
-    const seen = new Set<string>();
-    return recs.filter(r => {
-      if (seen.has(r.category + r.type)) return false;
-      seen.add(r.category + r.type);
-      return true;
-    }).slice(0, 4);
-  }, [spendingByCategory, subCategoryBreakdown]);
-
-  // Transactions for the drilled category
-  const drillTransactions = useMemo(() => {
-    if (!drillCategory) return [];
-    return trueFilteredTransactions
-      .filter(t => t.spending_category === drillCategory)
-      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [drillCategory, trueFilteredTransactions]);
-
-  const drillColor = drillCategory
-    ? CATEGORY_COLORS[spendingByCategory.findIndex(c => c.name === drillCategory) % CATEGORY_COLORS.length]
-    : '#10b981';
+  const hasOverall = !!selectedMonth && monthlyBudget !== undefined && monthlyBudget > 0;
 
   // ─── Sub-components ──────────────────────────────────────────────────────────
-
 
   const TrendArrow = ({ trend }: { trend: number | null }) => {
     if (trend === null) return <span className="text-slate-300 text-[10px] font-bold">—</span>;
@@ -243,22 +200,18 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
     );
   };
 
-  const recTypeStyle: Record<string, { bg: string; border: string; badge: string; badgeText: string }> = {
-    high_share: { bg: 'bg-rose-50', border: 'border-rose-100', badge: 'bg-rose-100', badgeText: 'text-rose-700' },
-    trending_up: { bg: 'bg-amber-50', border: 'border-amber-100', badge: 'bg-amber-100', badgeText: 'text-amber-700' },
-    top_spender: { bg: 'bg-slate-50', border: 'border-slate-200', badge: 'bg-slate-100', badgeText: 'text-slate-600' },
-  };
-
-  const recLabel: Record<string, string> = {
-    high_share: 'High Share',
-    trending_up: 'Rising Fast',
-    top_spender: 'Top Spend',
-  };
-
   // ─── Render ──────────────────────────────────────────────────────────────────
 
   return (
     <div className="space-y-6 pb-12">
+
+      <AiAnalyzer
+        currentLedger={currentLedger}
+        personalTransactions={personalTransactions}
+        wifeTransactions={wifeTransactions}
+        jointTransactions={jointTransactions}
+        themeColor={themeColor}
+      />
 
       {/* Month Pill Filter */}
       <div className="bg-white p-4 rounded-3xl border border-slate-200 shadow-sm">
@@ -290,210 +243,125 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
         </div>
       </div>
 
-      {/* Stats Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
-          <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-2">Total Spent ({currentLedger})</p>
-          <span className="text-3xl font-black text-slate-900 leading-none">
-            ${stats.totalSpent.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-          </span>
-          {momDelta !== null && (
-            <p className={`text-[11px] font-bold mt-2 ${momDelta > 0 ? 'text-rose-500' : 'text-emerald-500'}`}>
-              {momDelta > 0 ? '↑' : '↓'} {Math.abs(momDelta).toFixed(1)}% vs last month
-            </p>
-          )}
-        </div>
-
-        {spendingByCategory.length > 0 && (
-          <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
-            <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-2">Biggest Category</p>
-            <span className="text-2xl font-black text-slate-900 leading-none">{spendingByCategory[0].name}</span>
-            <p className="text-[11px] font-bold text-slate-400 mt-2">
-              ${spendingByCategory[0].value.toFixed(2)} · {spendingByCategory[0].percentage.toFixed(0)}% of total
-            </p>
-          </div>
+      {/* Total Spent */}
+      <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
+        <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-2">Total Spent ({currentLedger})</p>
+        <span className="text-3xl font-black text-slate-900 leading-none">
+          ${stats.totalSpent.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+        </span>
+        {momDelta !== null && (
+          <p className={`text-[11px] font-bold mt-2 ${momDelta > 0 ? 'text-rose-500' : 'text-emerald-500'}`}>
+            {momDelta > 0 ? '↑' : '↓'} {Math.abs(momDelta).toFixed(1)}% vs last month
+          </p>
         )}
-
-        {spendingByCategory.length > 1 && (() => {
-          const rising = [...spendingByCategory].filter(c => c.trend !== null && c.trend > 0).sort((a, b) => (b.trend ?? 0) - (a.trend ?? 0))[0];
-          return rising ? (
-            <div className="bg-white p-6 rounded-3xl shadow-sm border border-rose-100">
-              <p className="text-rose-400 text-[10px] font-black uppercase tracking-widest mb-2">Fastest Rising</p>
-              <span className="text-2xl font-black text-rose-700 leading-none">{rising.name}</span>
-              <p className="text-[11px] font-bold text-rose-400 mt-2">
-                +{(rising.trend ?? 0).toFixed(0)}% vs last month
-              </p>
-            </div>
-          ) : null;
-        })()}
       </div>
 
-      {/* Envelopes at a glance (only meaningful for a specific month) */}
-      {selectedMonth && envelopes && envelopes.length > 0 && (() => {
-        const [y, mo] = selectedMonth.split('-');
-        const monthLabel = new Date(parseInt(y), parseInt(mo) - 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-        const hasOverall = monthlyBudget !== undefined && monthlyBudget > 0;
-        return (
-          <section className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
-            <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest mb-1">Envelopes</h3>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-5">{monthLabel}</p>
+      {/* Spending Trend */}
+      <section className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+        <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest mb-6">Spending Trend</h3>
+        <div className="h-[220px]">
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={monthlySpendingData}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+              <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 10, fontWeight: 700}} />
+              <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 10, fontWeight: 700}} />
+              <Tooltip contentStyle={{borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}} />
+              <Area type="monotone" dataKey="amount" stroke={ledgerHex} fillOpacity={0.1} strokeWidth={3} />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      </section>
 
-            {/* Overall monthly budget */}
-            {hasOverall && (() => {
-              const p = (stats.totalSpent / monthlyBudget!) * 100;
-              const bar = p >= 100 ? 'bg-rose-500' : p >= 80 ? 'bg-amber-400' : `bg-${themeColor}-600`;
-              const amt = p >= 100 ? 'text-rose-600' : p >= 80 ? 'text-amber-600' : 'text-slate-700';
-              const remaining = monthlyBudget! - stats.totalSpent;
-              return (
-                <div className="mb-5 pb-5 border-b border-slate-100">
-                  <div className="flex justify-between items-baseline mb-1.5">
-                    <span className="text-xs font-black text-slate-700 uppercase tracking-wider">Overall</span>
-                    <div className="flex items-baseline gap-1.5">
-                      <span className={`text-xs font-black ${amt}`}>${stats.totalSpent.toFixed(2)}</span>
-                      <span className="text-[10px] text-slate-400">/ ${monthlyBudget!.toFixed(2)}</span>
-                      <span className={`text-[10px] font-bold ${amt}`}>· {remaining < 0 ? `$${Math.abs(remaining).toFixed(2)} over` : `$${remaining.toFixed(2)} left`}</span>
-                    </div>
-                  </div>
-                  <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                    <div className={`h-full rounded-full transition-all duration-500 ${bar}`} style={{ width: `${Math.min(p, 100)}%` }} />
+      {/* Budgets & Categories — merged envelopes + spending breakdown */}
+      {budgetRows.length > 0 && (
+        <section className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+          <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest mb-1">Budgets & Categories</h3>
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-5">
+            Tap a category to see individual expenses
+          </p>
+
+          {/* Overall monthly budget */}
+          {hasOverall && (() => {
+            const p = (stats.totalSpent / monthlyBudget!) * 100;
+            const bar = p >= 100 ? 'bg-rose-500' : p >= 80 ? 'bg-amber-400' : `bg-${themeColor}-600`;
+            const amt = p >= 100 ? 'text-rose-600' : p >= 80 ? 'text-amber-600' : 'text-slate-700';
+            const remaining = monthlyBudget! - stats.totalSpent;
+            return (
+              <div className="mb-5 pb-5 border-b border-slate-100">
+                <div className="flex justify-between items-baseline mb-1.5">
+                  <span className="text-xs font-black text-slate-700 uppercase tracking-wider">Overall</span>
+                  <div className="flex items-baseline gap-1.5">
+                    <span className={`text-xs font-black ${amt}`}>${stats.totalSpent.toFixed(2)}</span>
+                    <span className="text-[10px] text-slate-400">/ ${monthlyBudget!.toFixed(2)}</span>
+                    <span className={`text-[10px] font-bold ${amt}`}>· {remaining < 0 ? `$${Math.abs(remaining).toFixed(2)} over` : `$${remaining.toFixed(2)} left`}</span>
                   </div>
                 </div>
-              );
-            })()}
+                <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                  <div className={`h-full rounded-full transition-all duration-500 ${bar}`} style={{ width: `${Math.min(p, 100)}%` }} />
+                </div>
+              </div>
+            );
+          })()}
 
-            {/* Per-envelope meters */}
-            <div className="space-y-4">
-              {envelopes.map(env => {
-                const spent = spentByCategory[env.name] || 0;
-                const color = env.color || 'slate';
+          <div className="space-y-4">
+            {budgetRows.map((row, i) => {
+              const isExpanded = expandedCategory === row.name;
+              const rowTransactions = transactionsByCategory[row.name] || [];
+              const dotColor = row.envelope?.color || DOT_COLORS[i % DOT_COLORS.length];
+              const isSinkingFund = row.envelope?.type === 'sinking_fund';
 
-                if (env.type === 'monthly_reset') {
-                  const limit = env.monthly_amount;
-                  const p = limit > 0 ? (spent / limit) * 100 : 0;
-                  const bar = p >= 100 ? 'bg-rose-500' : p >= 80 ? 'bg-amber-400' : `bg-${color}-500`;
-                  const amt = p >= 100 ? 'text-rose-600' : p >= 80 ? 'text-amber-600' : 'text-slate-700';
-                  const remaining = limit - spent;
-                  return (
-                    <div key={env.id}>
-                      <div className="flex justify-between items-baseline mb-1">
-                        <span className="text-xs font-bold text-slate-600">{env.name}</span>
-                        <div className="flex items-baseline gap-1.5">
-                          <span className={`text-xs font-black ${amt}`}>${spent.toFixed(2)}</span>
-                          {limit > 0
-                            ? <><span className="text-[10px] text-slate-400">/ ${limit.toFixed(2)}</span><span className={`text-[10px] font-bold ${amt}`}>· {remaining < 0 ? `$${Math.abs(remaining).toFixed(2)} over` : `$${remaining.toFixed(2)} left`}</span></>
-                            : <span className="text-[10px] text-slate-300 italic">no limit</span>}
-                        </div>
-                      </div>
-                      {limit > 0 && (
-                        <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+              // Budget context — only meaningful for a specific month.
+              let budgetBlock: React.ReactNode = null;
+              if (selectedMonth && row.envelope) {
+                if (isSinkingFund) {
+                  const now = sinkingFundNow(row.envelope, trueTransactions);
+                  budgetBlock = (
+                    <p className="text-[10px] font-semibold text-slate-400 mt-0.5">
+                      Fund balance now: <span className={now < 0 ? 'text-rose-600 font-bold' : 'text-slate-600 font-bold'}>${now.toFixed(2)}</span>
+                      {' '}(${(row.envelope.balance || 0).toFixed(2)} start · +${(row.envelope.monthly_amount || 0).toFixed(2)}/mo)
+                    </p>
+                  );
+                } else {
+                  const limit = row.envelope.monthly_amount;
+                  if (limit > 0) {
+                    const p = (row.value / limit) * 100;
+                    const bar = p >= 100 ? 'bg-rose-500' : p >= 80 ? 'bg-amber-400' : `bg-${dotColor}-500`;
+                    const amt = p >= 100 ? 'text-rose-600' : p >= 80 ? 'text-amber-600' : 'text-slate-500';
+                    const remaining = limit - row.value;
+                    budgetBlock = (
+                      <>
+                        <p className={`text-[10px] font-bold mt-0.5 ${amt}`}>
+                          / ${limit.toFixed(2)} budget · {remaining < 0 ? `$${Math.abs(remaining).toFixed(2)} over` : `$${remaining.toFixed(2)} left`}
+                        </p>
+                        <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden mt-1.5">
                           <div className={`h-full rounded-full transition-all duration-500 ${bar}`} style={{ width: `${Math.min(p, 100)}%` }} />
                         </div>
-                      )}
-                    </div>
-                  );
+                      </>
+                    );
+                  }
                 }
-
-                // sinking_fund — calculated balance now (start-of-year + contributions − draws this year)
-                const now = sinkingFundNow(env, trueTransactions);
-                return (
-                  <div key={env.id} className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className={`w-2 h-2 rounded-full bg-${color}-500`} />
-                      <span className="text-xs font-bold text-slate-600">{env.name}</span>
-                      <span className="text-[9px] font-black bg-slate-100 text-slate-400 px-1.5 py-0.5 rounded-full uppercase tracking-wider">Fund</span>
-                    </div>
-                    <div className="text-right">
-                      <span className={`text-xs font-black ${now < 0 ? 'text-rose-600' : 'text-slate-700'}`}>${now.toFixed(2)}</span>
-                      <span className="text-[10px] text-slate-400"> now</span>
-                      <p className="text-[10px] font-semibold text-slate-400">${(env.balance || 0).toFixed(2)} start · +${(env.monthly_amount || 0).toFixed(2)}/mo</p>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Total monthly commitment across all envelopes */}
-            {envelopes.length > 0 && (
-              <div className="mt-5 pt-3 border-t-2 border-slate-100 flex items-center justify-between">
-                <span className="text-xs font-black text-slate-500 uppercase tracking-wider">Total Monthly</span>
-                <span className="text-sm font-black text-slate-800">${totalMonthlyEnvelopes(envelopes).toFixed(2)}<span className="text-[10px] font-bold text-slate-400"> /mo</span></span>
-              </div>
-            )}
-          </section>
-        );
-      })()}
-
-      {/* Where to Cut */}
-      {cutRecommendations.length > 0 && (
-        <section className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
-          <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest mb-1 flex items-center gap-2">
-            <svg className="w-4 h-4 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
-            </svg>
-            Where to Cut
-          </h3>
-          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-5">
-            Based on {selectedMonth ? "this month's" : 'all-time'} spending patterns
-          </p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {cutRecommendations.map((rec, i) => {
-              const style = recTypeStyle[rec.type];
-              return (
-                <div key={i} className={`${style.bg} border ${style.border} rounded-2xl p-4`}>
-                  <div className="flex items-start justify-between gap-2 mb-2">
-                    <div>
-                      <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full ${style.badge} ${style.badgeText}`}>
-                        {recLabel[rec.type]}
-                      </span>
-                      <p className="text-sm font-black text-slate-800 mt-1.5">{rec.category}</p>
-                    </div>
-                    <span className="text-sm font-black text-slate-700 whitespace-nowrap">${rec.amount.toFixed(2)}</span>
-                  </div>
-                  <p className="text-[11px] font-bold text-slate-500">{rec.reason}</p>
-                  {rec.subTip && (
-                    <p className="text-[10px] text-slate-400 font-semibold mt-1 border-t border-white/60 pt-1">{rec.subTip}</p>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </section>
-      )}
-
-      {/* Spending Breakdown */}
-      {spendingByCategory.length > 0 && (
-        <section className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
-          <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest mb-1">Spending Breakdown</h3>
-          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-5">
-            Tap a category to see sub-categories
-          </p>
-          <div className="space-y-3">
-            {spendingByCategory.map((cat, i) => {
-              const color = CATEGORY_COLORS[i % CATEGORY_COLORS.length];
-              const isExpanded = expandedCategory === cat.name;
-              const subCats = subCategoryBreakdown[cat.name] ?? {};
-              const sortedSubs = Object.entries(subCats).sort((a, b) => b[1] - a[1]);
+              }
 
               return (
-                <div key={cat.name}>
+                <div key={row.name}>
                   <button
-                    onClick={() => setExpandedCategory(isExpanded ? null : cat.name)}
+                    onClick={() => setExpandedCategory(isExpanded ? null : row.name)}
                     className="w-full text-left"
                   >
-                    <div className="flex items-center justify-between mb-1">
-                      <div className="flex items-center gap-2">
-                        <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: color }} />
-                        <span className="text-xs font-black text-slate-700">{cat.name}</span>
-                        {i === 0 && (
-                          <span className="text-[9px] font-black bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-full uppercase tracking-wider">Top</span>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 bg-${dotColor}-500`} />
+                        <span className="text-xs font-black text-slate-700 truncate">{row.name}</span>
+                        {isSinkingFund && (
+                          <span className="text-[9px] font-black bg-slate-100 text-slate-400 px-1.5 py-0.5 rounded-full uppercase tracking-wider shrink-0">Fund</span>
                         )}
                       </div>
-                      <div className="flex items-center gap-3">
-                        <TrendArrow trend={cat.trend} />
+                      <div className="flex items-center gap-3 shrink-0">
+                        <TrendArrow trend={row.trend} />
                         <span className="text-xs font-black text-slate-700">
-                          ${cat.value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          ${row.value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </span>
-                        <span className="text-[10px] font-bold text-slate-400 w-8 text-right">{cat.percentage.toFixed(0)}%</span>
+                        <span className="text-[10px] font-bold text-slate-400 w-8 text-right">{row.percentage.toFixed(0)}%</span>
                         <svg
                           className={`w-3.5 h-3.5 text-slate-300 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
                           fill="none" stroke="currentColor" viewBox="0 0 24 24"
@@ -502,140 +370,44 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                         </svg>
                       </div>
                     </div>
-                    <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
-                      <div
-                        className="h-full rounded-full transition-all duration-500"
-                        style={{ width: `${cat.percentage}%`, backgroundColor: color }}
-                      />
-                    </div>
+                    {budgetBlock}
                   </button>
 
-                  {isExpanded && sortedSubs.length > 0 && (
-                    <div className="mt-2 ml-4 space-y-2 border-l-2 pl-3" style={{ borderColor: color + '40' }}>
-                      {sortedSubs.map(([sub, amount]) => {
-                        const subPct = cat.value > 0 ? (amount / cat.value) * 100 : 0;
-                        return (
-                          <div key={sub}>
-                            <div className="flex items-center justify-between mb-0.5">
-                              <span className="text-[11px] font-bold text-slate-500">{sub}</span>
-                              <div className="flex items-center gap-2">
-                                <span className="text-[11px] font-black text-slate-600">${amount.toFixed(2)}</span>
-                                <span className="text-[10px] font-bold text-slate-300 w-7 text-right">{subPct.toFixed(0)}%</span>
-                              </div>
-                            </div>
-                            <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden">
-                              <div
-                                className="h-full rounded-full"
-                                style={{ width: `${subPct}%`, backgroundColor: color + 'aa' }}
-                              />
-                            </div>
+                  {isExpanded && (
+                    <div className={`mt-3 ml-4 space-y-2 border-l-2 pl-3 border-${dotColor}-200`}>
+                      {rowTransactions.length === 0 && (
+                        <p className="text-[11px] text-slate-400 italic py-1">No expenses in this period.</p>
+                      )}
+                      {rowTransactions.map(t => (
+                        <div key={t.id} className="flex items-center justify-between py-1.5 border-b border-slate-50 last:border-0">
+                          <div className="min-w-0 flex-1">
+                            <p className="text-[11px] font-bold text-slate-600 truncate">{t.remarks || t.sub_category || t.spending_category}</p>
+                            <p className="text-[10px] font-semibold text-slate-400">
+                              {new Date(t.date).toLocaleDateString('en-SG', { day: 'numeric', month: 'short' })} · {t.sub_category}
+                              {t.__source !== currentLedger && (
+                                <span className="ml-1.5 text-slate-300">· via {LEDGER_META[t.__source].label}</span>
+                              )}
+                            </p>
                           </div>
-                        );
-                      })}
+                          <span className="text-xs font-black text-slate-700 ml-3 shrink-0">${t.amount.toFixed(2)}</span>
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>
               );
             })}
           </div>
-        </section>
-      )}
 
-      {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <section className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
-          <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest mb-6">Spending Trend</h3>
-          <div className="h-[250px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={monthlySpendingData}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 10, fontWeight: 700}} />
-                <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 10, fontWeight: 700}} />
-                <Tooltip contentStyle={{borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}} />
-                <Area type="monotone" dataKey="amount" stroke={ledgerHex} fillOpacity={0.1} strokeWidth={3} />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </section>
-
-        <section className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest">Category Distribution</h3>
-            {drillCategory && (
-              <button
-                onClick={() => setDrillCategory(null)}
-                className="text-[10px] font-black text-slate-400 hover:text-slate-600 uppercase tracking-widest flex items-center gap-1"
-              >
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-                Clear
-              </button>
-            )}
-          </div>
-          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest -mt-4 mb-4">Tap a bar to see transactions</p>
-          <div className="h-[250px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart
-                data={spendingByCategory}
-                layout="vertical"
-                onClick={(data) => {
-                  if (data && data.activePayload && data.activePayload[0]) {
-                    const name = data.activePayload[0].payload.name;
-                    setDrillCategory(prev => prev === name ? null : name);
-                  }
-                }}
-                style={{ cursor: 'pointer' }}
-              >
-                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
-                <XAxis type="number" hide />
-                <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{fill: '#475569', fontSize: 10, fontWeight: 700}} width={80} />
-                <Tooltip cursor={{fill: '#f8fafc'}} contentStyle={{borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}} />
-                <Bar dataKey="value" radius={[0, 8, 8, 0]}>
-                  {spendingByCategory.map((entry, index) => (
-                    <Cell
-                      key={entry.name}
-                      fill={drillCategory === entry.name ? CATEGORY_COLORS[index % CATEGORY_COLORS.length] : (drillCategory ? '#e2e8f0' : ledgerHex)}
-                      opacity={drillCategory && drillCategory !== entry.name ? 0.4 : 1}
-                    />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-
-          {/* Transaction drill-down */}
-          {drillCategory && drillTransactions.length > 0 && (
-            <div className="mt-4 border-t border-slate-100 pt-4">
-              <div className="flex items-center gap-2 mb-3">
-                <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: drillColor }} />
-                <span className="text-xs font-black text-slate-700 uppercase tracking-widest">{drillCategory}</span>
-                <span className="text-[10px] font-bold text-slate-400">· {drillTransactions.length} transactions</span>
-              </div>
-              <div className="space-y-2 max-h-[280px] overflow-y-auto pr-1">
-                {drillTransactions.map(t => (
-                  <div key={t.id} className="flex items-center justify-between py-2 border-b border-slate-50 last:border-0">
-                    <div className="min-w-0 flex-1">
-                      <p className="text-xs font-bold text-slate-700 truncate">{t.remarks || t.sub_category || t.spending_category}</p>
-                      <p className="text-[10px] font-semibold text-slate-400">
-                        {new Date(t.date).toLocaleDateString('en-SG', { day: 'numeric', month: 'short' })} · {t.sub_category}
-                        {t.__source !== currentLedger && (
-                          <span className="ml-1.5 text-slate-300">· via {LEDGER_META[t.__source].label}</span>
-                        )}
-                      </p>
-                    </div>
-                    <span className="text-sm font-black text-slate-800 ml-3 shrink-0">
-                      ${t.amount.toFixed(2)}
-                    </span>
-                  </div>
-                ))}
-              </div>
+          {/* Total monthly commitment across all envelopes */}
+          {selectedMonth && envelopes && envelopes.length > 0 && (
+            <div className="mt-5 pt-3 border-t-2 border-slate-100 flex items-center justify-between">
+              <span className="text-xs font-black text-slate-500 uppercase tracking-wider">Total Monthly</span>
+              <span className="text-sm font-black text-slate-800">${totalMonthlyEnvelopes(envelopes).toFixed(2)}<span className="text-[10px] font-bold text-slate-400"> /mo</span></span>
             </div>
           )}
         </section>
-      </div>
-
-
+      )}
     </div>
   );
 };

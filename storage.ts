@@ -1,10 +1,11 @@
 
-import { Transaction, Ledger, WorkspaceSettings, SystemAccountType, Envelope } from './types';
+import { Transaction, Ledger, WorkspaceSettings, SystemAccountType, Envelope, ChatMessage } from './types';
 import { supabase, isSupabaseConfigured } from './supabase';
 
 const LOCAL_STORAGE_KEY = 'eden_wallet_data';
 const LOCAL_SETTINGS_KEY = 'eden_wallet_settings';
 const LOCAL_ENVELOPES_KEY = 'eden_wallet_envelopes';
+const LOCAL_AI_CONVERSATION_KEY = 'eden_wallet_ai_conversation';
 const SHARED_USER_ID = '00000000-0000-0000-0000-000000000000';
 
 export const dataStorage = {
@@ -196,5 +197,52 @@ export const dataStorage = {
     const filtered = current.filter((e) => e.id !== id);
     localStorage.setItem(`${LOCAL_ENVELOPES_KEY}_${ledger}`, JSON.stringify(filtered));
     return true;
+  },
+
+  /**
+   * AI Analyzer conversation history — per ledger, so it survives closing the
+   * app and reopening on another device. Mirrors the settings/envelope pattern:
+   * Supabase first, localStorage mirror/fallback.
+   */
+  async getAiConversation(ledger: Ledger): Promise<ChatMessage[]> {
+    const local = localStorage.getItem(`${LOCAL_AI_CONVERSATION_KEY}_${ledger}`);
+    const parsedLocal: ChatMessage[] = local ? JSON.parse(local) : [];
+
+    if (isSupabaseConfigured && supabase) {
+      try {
+        const { data, error } = await supabase
+          .from('ai_conversations')
+          .select('messages')
+          .eq('user_id', SHARED_USER_ID)
+          .eq('ledger', ledger)
+          .maybeSingle();
+
+        if (!error && data?.messages) {
+          localStorage.setItem(`${LOCAL_AI_CONVERSATION_KEY}_${ledger}`, JSON.stringify(data.messages));
+          return data.messages;
+        }
+      } catch (e) {
+        console.error("AI Conversation Fetch Failed:", e);
+      }
+    }
+
+    return parsedLocal;
+  },
+
+  async saveAiConversation(ledger: Ledger, messages: ChatMessage[]): Promise<void> {
+    localStorage.setItem(`${LOCAL_AI_CONVERSATION_KEY}_${ledger}`, JSON.stringify(messages));
+
+    if (isSupabaseConfigured && supabase) {
+      const { error } = await supabase
+        .from('ai_conversations')
+        .upsert({
+          user_id: SHARED_USER_ID,
+          ledger,
+          messages,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'user_id,ledger' });
+
+      if (error) console.error("Cloud AI Conversation Sync Failed:", error.message);
+    }
   }
 };
