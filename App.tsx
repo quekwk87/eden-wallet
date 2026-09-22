@@ -32,6 +32,9 @@ const App: React.FC = () => {
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
+  // Bumped after each successful add to force TransactionForm to remount with a
+  // blank form, instead of navigating to History (which used to wait on fetchData).
+  const [addFormKey, setAddFormKey] = useState(0);
 
   // Auth: shared household login. When Supabase isn't configured (offline/local),
   // there's no cloud data to protect, so we skip the login gate entirely.
@@ -147,9 +150,10 @@ const App: React.FC = () => {
 
   const handleAddTransaction = async (t: Omit<Transaction, 'id'>) => {
     await dataStorage.saveTransaction(t, currentLedger);
-    // Refresh both sets of data
+    // Refresh data in the background and reset straight to a blank Add Entry
+    // form — staying on this tab avoids waiting on the History/Analytics fetch.
     fetchData();
-    setActiveTab('history');
+    setAddFormKey(k => k + 1);
   };
 
   const handleUpdateTransaction = async (t: Transaction) => {
@@ -268,6 +272,7 @@ const App: React.FC = () => {
                     <span className="text-[10px] font-black text-slate-300 uppercase tracking-[0.2em]">{currentLedger}</span>
                   </div>
                   <TransactionForm
+                    key={editingTransaction ? editingTransaction.id : addFormKey}
                     onSubmit={handleAddTransaction}
                     onUpdate={handleUpdateTransaction}
                     categories={settings.categories}
