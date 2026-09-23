@@ -8,6 +8,7 @@ import Sidebar from './components/Sidebar';
 import Header from './components/Header';
 import SettingsManager from './components/SettingsManager';
 import PinLogin from './components/PinLogin';
+import Toast, { ToastState } from './components/Toast';
 import { DEFAULT_SPENDING_CATEGORIES, ACCOUNT_CONFIG, LEDGER_META, defaultLedgerForEmail, MONKEY_EMAIL, perspectiveAccountConfigs } from './constants';
 import { dataStorage } from './storage';
 import { supabase, isSupabaseConfigured } from './supabase';
@@ -35,6 +36,7 @@ const App: React.FC = () => {
   // Bumped after each successful add to force TransactionForm to remount with a
   // blank form, instead of navigating to History (which used to wait on fetchData).
   const [addFormKey, setAddFormKey] = useState(0);
+  const [toast, setToast] = useState<ToastState | null>(null);
 
   // Auth: shared household login. When Supabase isn't configured (offline/local),
   // there's no cloud data to protect, so we skip the login gate entirely.
@@ -149,11 +151,17 @@ const App: React.FC = () => {
   }, [currentLedger]);
 
   const handleAddTransaction = async (t: Omit<Transaction, 'id'>) => {
-    await dataStorage.saveTransaction(t, currentLedger);
-    // Refresh data in the background and reset straight to a blank Add Entry
-    // form — staying on this tab avoids waiting on the History/Analytics fetch.
-    fetchData();
-    setAddFormKey(k => k + 1);
+    try {
+      await dataStorage.saveTransaction(t, currentLedger);
+      // Refresh data in the background and reset straight to a blank Add Entry
+      // form — staying on this tab avoids waiting on the History/Analytics fetch.
+      fetchData();
+      setAddFormKey(k => k + 1);
+      setToast({ type: 'success', message: 'Expense added' });
+    } catch (e) {
+      console.error('Failed to save transaction:', e);
+      setToast({ type: 'error', message: "Couldn't save — please try again" });
+    }
   };
 
   const handleUpdateTransaction = async (t: Transaction) => {
@@ -218,7 +226,8 @@ const App: React.FC = () => {
 
   return (
     <div className="flex h-screen overflow-hidden bg-slate-50">
-      <Sidebar 
+      <Toast toast={toast} onDismiss={() => setToast(null)} />
+      <Sidebar
         activeTab={activeTab} 
         setActiveTab={setActiveTab} 
         currentLedger={currentLedger} 
