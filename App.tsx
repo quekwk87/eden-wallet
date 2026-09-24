@@ -126,6 +126,22 @@ const App: React.FC = () => {
     if (savedSettings) setSettings(savedSettings);
   };
 
+  // Silently re-fetch all three ledgers' transactions. getTransactions() also
+  // flushes any queued offline changes first, so this is what actually pushes
+  // a transaction that was saved locally (Supabase unreachable at the time)
+  // once a connection is available again — otherwise it would just sit queued
+  // until the next add/ledger-switch/app-open.
+  const refreshTransactions = async () => {
+    const [pTxs, wTxs, jTxs] = await Promise.all([
+      dataStorage.getTransactions(Ledger.PERSONAL),
+      dataStorage.getTransactions(Ledger.WIFE),
+      dataStorage.getTransactions(Ledger.JOINT),
+    ]);
+    setPersonalTransactions(pTxs);
+    setWifeTransactions(wTxs);
+    setJointTransactions(jTxs);
+  };
+
   // Fetch data once authenticated (or when offline/unconfigured). Re-runs on
   // ledger switch and when the session appears after sign-in.
   useEffect(() => {
@@ -141,13 +157,22 @@ const App: React.FC = () => {
   }, [activeTab]);
 
   // Re-fetch when the app regains focus (e.g. switching back from another tab or
-  // bringing a mobile browser back to the foreground).
+  // bringing a mobile browser back to the foreground), and when the browser
+  // reports the connection coming back — both are moments a locally-queued
+  // transaction can finally sync.
   useEffect(() => {
     const handleVisibilityChange = () => {
-      if (!document.hidden) refreshSettings();
+      if (!document.hidden) {
+        refreshSettings();
+        refreshTransactions();
+      }
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('online', refreshTransactions);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('online', refreshTransactions);
+    };
   }, [currentLedger]);
 
   const handleAddTransaction = async (t: Omit<Transaction, 'id'>) => {
