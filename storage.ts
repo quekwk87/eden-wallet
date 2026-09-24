@@ -9,6 +9,17 @@ const LOCAL_AI_CONVERSATION_KEY = 'eden_wallet_ai_conversation';
 const PENDING_TX_KEY = 'eden_wallet_pending_tx';
 const SHARED_USER_ID = '00000000-0000-0000-0000-000000000000';
 
+// A flaky connection doesn't always fail fast — a fetch can sit pending for a
+// long time before the browser gives up. Race it against a short timeout so a
+// save falls back to the offline queue (and the caller gets a result) quickly
+// instead of leaving the user staring at nothing.
+const TX_TIMEOUT_MS = 6000;
+const withTimeout = <T>(query: PromiseLike<T>, ms: number = TX_TIMEOUT_MS): Promise<T> =>
+  Promise.race([
+    Promise.resolve(query),
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error('Request timed out')), ms)),
+  ]);
+
 // ── Offline-safe transaction sync ──────────────────────────────────────────
 // A create/update/delete that can't reach Supabase (offline, dropped request)
 // used to silently fall back to a localStorage-only write with no way back —
@@ -59,19 +70,19 @@ const flushPendingTransactions = async (ledger: Ledger): Promise<void> => {
     const m = pending[i];
     try {
       if (m.kind === 'create') {
-        const { error } = await supabase
+        const { error } = await withTimeout(supabase
           .from('transactions')
-          .insert([{ ...m.payload, id: m.tempId, user_id: SHARED_USER_ID, ledger }]);
+          .insert([{ ...m.payload, id: m.tempId, user_id: SHARED_USER_ID, ledger }]));
         if (error) remaining.push(m);
       } else if (m.kind === 'update') {
         const { id, ...fields } = m.payload;
-        const { error } = await supabase
+        const { error } = await withTimeout(supabase
           .from('transactions')
           .update({ ...fields, user_id: SHARED_USER_ID, ledger })
-          .eq('id', id);
+          .eq('id', id));
         if (error) remaining.push(m);
       } else {
-        const { error } = await supabase.from('transactions').delete().eq('id', m.id);
+        const { error } = await withTimeout(supabase.from('transactions').delete().eq('id', m.id));
         if (error) remaining.push(m);
       }
     } catch (e) {
@@ -90,12 +101,12 @@ export const dataStorage = {
     if (isSupabaseConfigured && supabase) {
       await flushPendingTransactions(ledger).catch(() => {});
       try {
-        const { data, error } = await supabase
+        const { data, error } = await withTimeout(supabase
           .from('transactions')
           .select('*')
           .eq('user_id', SHARED_USER_ID)
           .eq('ledger', ledger)
-          .order('date', { ascending: false });
+          .order('date', { ascending: false }));
 
         if (!error && data) {
           // Merge in anything still queued (didn't flush — still offline) so it
@@ -115,11 +126,11 @@ export const dataStorage = {
   async saveTransaction(t: Omit<Transaction, 'id'>, ledger: Ledger): Promise<boolean> {
     if (isSupabaseConfigured && supabase) {
       try {
-        const { error } = await supabase.from('transactions').insert([{
+        const { error } = await withTimeout(supabase.from('transactions').insert([{
           ...t,
           user_id: SHARED_USER_ID,
           ledger: ledger
-        }]);
+        }]));
         if (!error) return true;
       } catch (e) {
         // fall through — offline path below
@@ -144,10 +155,10 @@ export const dataStorage = {
     if (pendingCreateIdx === -1 && isSupabaseConfigured && supabase) {
       try {
         const { id, ...fields } = t;
-        const { error } = await supabase
+        const { error } = await withTimeout(supabase
           .from('transactions')
           .update({ ...fields, user_id: SHARED_USER_ID, ledger })
-          .eq('id', id);
+          .eq('id', id));
         if (!error) return true;
       } catch (e) {
         // fall through — offline path below
@@ -175,7 +186,7 @@ export const dataStorage = {
 
     if (pendingCreateIdx === -1 && isSupabaseConfigured && supabase) {
       try {
-        const { error } = await supabase.from('transactions').delete().eq('id', id);
+        const { error } = await withTimeout(supabase.from('transactions').delete().eq('id', id));
         if (!error) {
           const current = JSON.parse(localStorage.getItem(`${LOCAL_STORAGE_KEY}_${ledger}`) || '[]');
           localStorage.setItem(`${LOCAL_STORAGE_KEY}_${ledger}`, JSON.stringify(current.filter((t: any) => t.id !== id)));

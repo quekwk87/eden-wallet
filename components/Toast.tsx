@@ -23,10 +23,10 @@ const Toast: React.FC<ToastProps> = ({ toast, onDismiss }) => {
   const isSuccess = toast.type === 'success';
 
   return (
-    <div className="fixed inset-x-0 bottom-6 z-[60] flex justify-center px-4 pointer-events-none">
+    <div className="fixed inset-x-0 top-20 z-[70] flex justify-center px-4 pointer-events-none">
       <div
         role="status"
-        className={`pointer-events-auto flex items-center gap-2.5 px-4 py-3 rounded-2xl shadow-lg border text-sm font-bold animate-in fade-in slide-in-from-bottom-2 duration-300 ${
+        className={`pointer-events-auto flex items-center gap-2.5 px-4 py-3 rounded-2xl shadow-lg border text-sm font-bold animate-in fade-in slide-in-from-top-2 duration-300 ${
           isSuccess
             ? 'bg-emerald-600 border-emerald-500 text-white'
             : 'bg-rose-600 border-rose-500 text-white'

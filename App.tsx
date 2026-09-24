@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Transaction, AppTab, WorkspaceSettings, Ledger, SystemAccountType, Envelope } from './types';
 import TransactionForm from './components/TransactionForm';
 import TransactionList from './components/TransactionList';
@@ -37,6 +37,9 @@ const App: React.FC = () => {
   // blank form, instead of navigating to History (which used to wait on fetchData).
   const [addFormKey, setAddFormKey] = useState(0);
   const [toast, setToast] = useState<ToastState | null>(null);
+  // Stable identity so Toast's auto-dismiss timer isn't restarted by every
+  // unrelated App re-render (e.g. the background fetchData() after a save).
+  const dismissToast = useCallback(() => setToast(null), []);
 
   // Auth: shared household login. When Supabase isn't configured (offline/local),
   // there's no cloud data to protect, so we skip the login gate entirely.
@@ -251,7 +254,7 @@ const App: React.FC = () => {
 
   return (
     <div className="flex h-screen overflow-hidden bg-slate-50">
-      <Toast toast={toast} onDismiss={() => setToast(null)} />
+      <Toast toast={toast} onDismiss={dismissToast} />
       <Sidebar
         activeTab={activeTab} 
         setActiveTab={setActiveTab} 
