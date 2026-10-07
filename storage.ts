@@ -20,6 +20,27 @@ const withTimeout = <T>(query: PromiseLike<T>, ms: number = TX_TIMEOUT_MS): Prom
     new Promise<T>((_, reject) => setTimeout(() => reject(new Error('Request timed out')), ms)),
   ]);
 
+// ── Category order ─────────────────────────────────────────────────────────
+// Categories are a Record, so their order is JS object key order — but Supabase
+// stores settings in a jsonb column, which discards key order (it re-sorts keys
+// by length, then alphabetically). A reorder therefore looked saved locally and
+// then snapped back on the next cloud fetch. saveSettings() now records the
+// order as an array (arrays keep their order) and this restores it on read.
+// Settings saved before this existed have no categoryOrder and are left as-is
+// until their next save.
+const applyCategoryOrder = (settings: WorkspaceSettings): WorkspaceSettings => {
+  const order = settings.categoryOrder;
+  if (!order || !settings.categories) return settings;
+  const ordered: Record<string, string[]> = {};
+  order.forEach(name => {
+    if (name in settings.categories) ordered[name] = settings.categories[name];
+  });
+  Object.keys(settings.categories).forEach(name => {
+    if (!(name in ordered)) ordered[name] = settings.categories[name];
+  });
+  return { ...settings, categories: ordered };
+};
+
 // ── Offline-safe transaction sync ──────────────────────────────────────────
 // A create/update/delete that can't reach Supabase (offline, dropped request)
 // used to silently fall back to a localStorage-only write with no way back —
@@ -216,7 +237,7 @@ export const dataStorage = {
    */
   async getSettings(ledger: Ledger): Promise<WorkspaceSettings | null> {
     const localSettings = localStorage.getItem(`${LOCAL_SETTINGS_KEY}_${ledger}`);
-    const parsedLocal = localSettings ? JSON.parse(localSettings) : null;
+    const parsedLocal = localSettings ? applyCategoryOrder(JSON.parse(localSettings)) : null;
 
     if (isSupabaseConfigured && supabase) {
       try {
@@ -226,10 +247,11 @@ export const dataStorage = {
           .eq('user_id', SHARED_USER_ID)
           .eq('ledger', ledger)
           .maybeSingle();
-        
+
         if (!error && data?.settings) {
-          localStorage.setItem(`${LOCAL_SETTINGS_KEY}_${ledger}`, JSON.stringify(data.settings));
-          return data.settings;
+          const ordered = applyCategoryOrder(data.settings as WorkspaceSettings);
+          localStorage.setItem(`${LOCAL_SETTINGS_KEY}_${ledger}`, JSON.stringify(ordered));
+          return ordered;
         } else if (!error && !data && parsedLocal) {
           // Sync existing local settings to cloud if cloud is empty
           await this.saveSettings(parsedLocal, ledger);
@@ -239,11 +261,13 @@ export const dataStorage = {
         console.error("Settings Sync Error:", e);
       }
     }
-    
+
     return parsedLocal;
   },
 
-  async saveSettings(settings: WorkspaceSettings, ledger: Ledger): Promise<void> {
+  async saveSettings(incoming: WorkspaceSettings, ledger: Ledger): Promise<void> {
+    // Record the category order explicitly — see applyCategoryOrder.
+    const settings: WorkspaceSettings = { ...incoming, categoryOrder: Object.keys(incoming.categories || {}) };
     localStorage.setItem(`${LOCAL_SETTINGS_KEY}_${ledger}`, JSON.stringify(settings));
 
     if (isSupabaseConfigured && supabase) {
