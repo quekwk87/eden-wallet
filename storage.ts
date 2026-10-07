@@ -20,26 +20,28 @@ const withTimeout = <T>(query: PromiseLike<T>, ms: number = TX_TIMEOUT_MS): Prom
     new Promise<T>((_, reject) => setTimeout(() => reject(new Error('Request timed out')), ms)),
   ]);
 
-// ── Category order ─────────────────────────────────────────────────────────
-// Categories are a Record, so their order is JS object key order — but Supabase
-// stores settings in a jsonb column, which discards key order (it re-sorts keys
-// by length, then alphabetically). A reorder therefore looked saved locally and
-// then snapped back on the next cloud fetch. saveSettings() now records the
-// order as an array (arrays keep their order) and this restores it on read.
-// Settings saved before this existed have no categoryOrder and are left as-is
-// until their next save.
-const applyCategoryOrder = (settings: WorkspaceSettings): WorkspaceSettings => {
-  const order = settings.categoryOrder;
-  if (!order || !settings.categories) return settings;
-  const ordered: Record<string, string[]> = {};
-  order.forEach(name => {
-    if (name in settings.categories) ordered[name] = settings.categories[name];
-  });
-  Object.keys(settings.categories).forEach(name => {
-    if (!(name in ordered)) ordered[name] = settings.categories[name];
-  });
-  return { ...settings, categories: ordered };
+// ── Category & account-label order ─────────────────────────────────────────
+// Categories and account labels are Records, so their order is JS object key
+// order — but Supabase stores settings in a jsonb column, which discards key
+// order (it re-sorts keys by length, then alphabetically). A reorder therefore
+// looked saved locally and then snapped back on the next cloud fetch.
+// saveSettings() records each order as an array (arrays keep their order) and
+// this restores it on read, appending any key missing from the list. Settings
+// saved before this existed have no order list and are left as-is until their
+// next save.
+const reorderRecord = <T,>(record: Record<string, T>, order?: string[]): Record<string, T> => {
+  if (!order) return record;
+  const ordered: Record<string, T> = {};
+  order.forEach(k => { if (k in record) ordered[k] = record[k]; });
+  Object.keys(record).forEach(k => { if (!(k in ordered)) ordered[k] = record[k]; });
+  return ordered;
 };
+
+const applyStoredOrder = (settings: WorkspaceSettings): WorkspaceSettings => ({
+  ...settings,
+  ...(settings.categories ? { categories: reorderRecord(settings.categories, settings.categoryOrder) } : {}),
+  ...(settings.accountConfigs ? { accountConfigs: reorderRecord(settings.accountConfigs, settings.accountOrder) } : {}),
+});
 
 // ── Offline-safe transaction sync ──────────────────────────────────────────
 // A create/update/delete that can't reach Supabase (offline, dropped request)
@@ -237,7 +239,7 @@ export const dataStorage = {
    */
   async getSettings(ledger: Ledger): Promise<WorkspaceSettings | null> {
     const localSettings = localStorage.getItem(`${LOCAL_SETTINGS_KEY}_${ledger}`);
-    const parsedLocal = localSettings ? applyCategoryOrder(JSON.parse(localSettings)) : null;
+    const parsedLocal = localSettings ? applyStoredOrder(JSON.parse(localSettings)) : null;
 
     if (isSupabaseConfigured && supabase) {
       try {
@@ -249,7 +251,7 @@ export const dataStorage = {
           .maybeSingle();
 
         if (!error && data?.settings) {
-          const ordered = applyCategoryOrder(data.settings as WorkspaceSettings);
+          const ordered = applyStoredOrder(data.settings as WorkspaceSettings);
           localStorage.setItem(`${LOCAL_SETTINGS_KEY}_${ledger}`, JSON.stringify(ordered));
           return ordered;
         } else if (!error && !data && parsedLocal) {
@@ -266,8 +268,12 @@ export const dataStorage = {
   },
 
   async saveSettings(incoming: WorkspaceSettings, ledger: Ledger): Promise<void> {
-    // Record the category order explicitly — see applyCategoryOrder.
-    const settings: WorkspaceSettings = { ...incoming, categoryOrder: Object.keys(incoming.categories || {}) };
+    // Record the orders explicitly — see reorderRecord.
+    const settings: WorkspaceSettings = {
+      ...incoming,
+      categoryOrder: Object.keys(incoming.categories || {}),
+      accountOrder: Object.keys(incoming.accountConfigs || {}),
+    };
     localStorage.setItem(`${LOCAL_SETTINGS_KEY}_${ledger}`, JSON.stringify(settings));
 
     if (isSupabaseConfigured && supabase) {

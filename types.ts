@@ -70,6 +70,7 @@ export interface WorkspaceSettings {
   categoryBudgets?: Record<string, number>;
   budgetsMigrated?: boolean;   // set true once old categoryBudgets are copied into envelopes
   categoryOrder?: string[];    // explicit category order — jsonb doesn't preserve object key order
+  accountOrder?: string[];     // same, for account labels
 }
 
 export type AppTab = 'add' | 'history' | 'analytics' | 'settings';

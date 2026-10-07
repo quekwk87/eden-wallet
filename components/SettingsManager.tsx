@@ -160,6 +160,17 @@ WITH CHECK (user_id = '00000000-0000-0000-0000-000000000000');`;
     setNewLabelName('');
   };
 
+  const moveAccountLabel = (type: string, direction: 'up' | 'down') => {
+    const keys = Object.keys(settings.accountConfigs);
+    const idx = keys.indexOf(type);
+    const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
+    if (swapIdx < 0 || swapIdx >= keys.length) return;
+    [keys[idx], keys[swapIdx]] = [keys[swapIdx], keys[idx]];
+    const reordered: Record<string, AccountConfig> = {};
+    keys.forEach(k => { reordered[k] = settings.accountConfigs[k]; });
+    saveSettings({ ...settings, accountConfigs: reordered });
+  };
+
   const deleteAccountLabel = (type: string) => {
     if (Object.keys(settings.accountConfigs).length <= 1) return alert("At least one label required.");
     if (window.confirm(`Delete label "${settings.accountConfigs[type].label}"?`)) {
@@ -312,13 +323,33 @@ WITH CHECK (user_id = '00000000-0000-0000-0000-000000000000');`;
                 <button type="submit" className={`px-8 py-3 bg-${themeColor}-600 text-white font-bold rounded-xl`}>Add</button>
               </form>
               <div className="space-y-3">
-                {(Object.entries(settings.accountConfigs) as [string, AccountConfig][]).map(([type, config]) => (
-                  <div key={type} onClick={() => setEditingLabelType(type)} className="bg-white px-6 py-4 rounded-2xl border border-slate-200 flex items-center justify-between cursor-pointer hover:border-slate-400">
-                    <div className="flex items-center gap-4">
-                      <div className={`w-3 h-3 rounded-full bg-${config.color}-500`} />
-                      <h4 className="font-bold text-slate-800">{config.label}</h4>
+                {(Object.entries(settings.accountConfigs) as [string, AccountConfig][]).map(([type, config], idx, all) => (
+                  <div key={type} className="bg-white pl-3 pr-6 py-3 rounded-2xl border border-slate-200 flex items-center gap-3 hover:border-slate-400">
+                    <div className="flex flex-col gap-0.5 shrink-0">
+                      <button
+                        onClick={() => moveAccountLabel(type, 'up')}
+                        disabled={idx === 0}
+                        className="p-1 text-slate-300 hover:text-slate-600 disabled:opacity-20 rounded transition-colors"
+                        title="Move up"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 15l7-7 7 7" /></svg>
+                      </button>
+                      <button
+                        onClick={() => moveAccountLabel(type, 'down')}
+                        disabled={idx === all.length - 1}
+                        className="p-1 text-slate-300 hover:text-slate-600 disabled:opacity-20 rounded transition-colors"
+                        title="Move down"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 9l-7 7-7-7" /></svg>
+                      </button>
                     </div>
-                    <svg className="w-4 h-4 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" /></svg>
+                    <div onClick={() => setEditingLabelType(type)} className="flex-1 flex items-center justify-between cursor-pointer min-w-0">
+                      <div className="flex items-center gap-4 min-w-0">
+                        <div className={`w-3 h-3 rounded-full shrink-0 bg-${config.color}-500`} />
+                        <h4 className="font-bold text-slate-800 truncate">{config.label}</h4>
+                      </div>
+                      <svg className="w-4 h-4 text-slate-300 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" /></svg>
+                    </div>
                   </div>
                 ))}
               </div>
