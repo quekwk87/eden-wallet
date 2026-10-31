@@ -196,10 +196,10 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
   // ─── Sub-components ──────────────────────────────────────────────────────────
 
   const TrendArrow = ({ trend }: { trend: number | null }) => {
-    if (trend === null) return <span className="text-slate-300 text-[10px] font-bold">—</span>;
+    if (trend === null) return null;
     const up = trend > 0;
     return (
-      <span className={`text-[10px] font-black flex items-center gap-0.5 ${up ? 'text-rose-500' : 'text-emerald-500'}`}>
+      <span className={`text-[11px] font-bold ${up ? 'text-rose-500' : 'text-emerald-500'}`}>
         {up ? '↑' : '↓'} {Math.abs(trend).toFixed(0)}%
       </span>
     );
@@ -309,72 +309,74 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
             );
           })()}
 
-          <div className="space-y-4">
+          <div className="divide-y divide-slate-100">
             {budgetRows.map((row, i) => {
               const isExpanded = expandedCategory === row.name;
               const rowTransactions = transactionsByCategory[row.name] || [];
               const dotColor = row.envelope?.color || DOT_COLORS[i % DOT_COLORS.length];
               const isSinkingFund = row.envelope?.type === 'sinking_fund';
 
-              // Budget context — only meaningful for a specific month.
-              let budgetBlock: React.ReactNode = null;
+              // Budget context — only meaningful for a specific month. `status` is the
+              // single muted line under the name; `bar` is the progress bar (monthly
+              // budgets only); `fundDetail` is the breakdown shown when expanded.
+              let status: React.ReactNode = null;
+              let bar: React.ReactNode = null;
+              let fundDetail: React.ReactNode = null;
               if (selectedMonth && row.envelope) {
                 if (isSinkingFund) {
                   const now = sinkingFundNow(row.envelope, trueTransactions);
                   const spentThisYear = drawnThisYear(row.envelope.name, trueTransactions);
-                  budgetBlock = (
-                    <>
-                      <p className="text-[10px] font-semibold text-slate-400 mt-0.5">
-                        Spent this year: <span className="text-slate-600 font-bold">${spentThisYear.toFixed(2)}</span>
-                      </p>
-                      <p className="text-[10px] font-semibold text-slate-400">
-                        Fund balance now: <span className={Math.round(now * 100) < 0 ? 'text-rose-600 font-bold' : 'text-slate-600 font-bold'}>${now.toFixed(2)}</span>
-                        {' '}(${(row.envelope.balance || 0).toFixed(2)} start · +${(row.envelope.monthly_amount || 0).toFixed(2)}/mo)
-                      </p>
-                    </>
+                  const negative = Math.round(now * 100) < 0;
+                  status = (
+                    <span>
+                      Spent this year <span className="font-bold text-slate-600">${spentThisYear.toFixed(2)}</span>
+                      <span className="mx-1.5 text-slate-300">·</span>
+                      Balance <span className={`font-bold ${negative ? 'text-rose-600' : 'text-slate-600'}`}>${now.toFixed(2)}</span>
+                    </span>
+                  );
+                  fundDetail = (
+                    <p className="text-[10px] font-semibold text-slate-400 pb-1">
+                      Start of year ${(row.envelope.balance || 0).toFixed(2)} · +${(row.envelope.monthly_amount || 0).toFixed(2)}/mo
+                    </p>
                   );
                 } else {
                   const limit = row.envelope.monthly_amount;
                   if (limit > 0) {
                     const p = (row.value / limit) * 100;
                     const over = isOverBudget(row.value, limit);
-                    const bar = over ? 'bg-rose-500' : p >= 80 ? 'bg-amber-400' : `bg-${dotColor}-500`;
-                    const amt = over ? 'text-rose-600' : p >= 80 ? 'text-amber-600' : 'text-slate-500';
                     const remaining = limit - row.value;
-                    budgetBlock = (
-                      <>
-                        <p className={`text-[10px] font-bold mt-0.5 ${amt}`}>
-                          / ${limit.toFixed(2)} budget · {over ? `$${Math.abs(remaining).toFixed(2)} over` : `$${Math.max(remaining, 0).toFixed(2)} left`}
-                        </p>
-                        <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden mt-1.5">
-                          <div className={`h-full rounded-full transition-all duration-500 ${bar}`} style={{ width: `${Math.min(p, 100)}%` }} />
-                        </div>
-                      </>
+                    const tone = over ? 'text-rose-600 font-bold' : p >= 80 ? 'text-amber-600 font-bold' : '';
+                    status = over
+                      ? <span className={tone}>${Math.abs(remaining).toFixed(2)} over budget</span>
+                      : <span className={tone}>${Math.max(remaining, 0).toFixed(2)} left of ${limit.toFixed(2)}</span>;
+                    const barColor = over ? 'bg-rose-500' : p >= 80 ? 'bg-amber-400' : `bg-${dotColor}-500`;
+                    bar = (
+                      <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden mt-2">
+                        <div className={`h-full rounded-full transition-all duration-500 ${barColor}`} style={{ width: `${Math.min(p, 100)}%` }} />
+                      </div>
                     );
                   }
                 }
               }
 
               return (
-                <div key={row.name}>
+                <div key={row.name} className="py-4 first:pt-0 last:pb-0">
                   <button
                     onClick={() => setExpandedCategory(isExpanded ? null : row.name)}
                     className="w-full text-left"
                   >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2 min-w-0">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2.5 min-w-0">
                         <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 bg-${dotColor}-500`} />
-                        <span className="text-xs font-black text-slate-700 truncate">{row.name}</span>
+                        <span className="text-sm font-bold text-slate-800 truncate">{row.name}</span>
                         {isSinkingFund && (
                           <span className="text-[9px] font-black bg-slate-100 text-slate-400 px-1.5 py-0.5 rounded-full uppercase tracking-wider shrink-0">Fund</span>
                         )}
                       </div>
-                      <div className="flex items-center gap-3 shrink-0">
-                        <TrendArrow trend={row.trend} />
-                        <span className="text-xs font-black text-slate-700">
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className="text-sm font-black text-slate-900">
                           ${row.value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </span>
-                        <span className="text-[10px] font-bold text-slate-400 w-8 text-right">{row.percentage.toFixed(0)}%</span>
                         <svg
                           className={`w-3.5 h-3.5 text-slate-300 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
                           fill="none" stroke="currentColor" viewBox="0 0 24 24"
@@ -383,11 +385,19 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                         </svg>
                       </div>
                     </div>
-                    {budgetBlock}
+                    <div className="flex items-center justify-between gap-3 mt-1 pl-5 text-[11px] font-medium text-slate-400">
+                      <div className="min-w-0">{status}</div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <TrendArrow trend={row.trend} />
+                        <span>{row.percentage.toFixed(0)}%</span>
+                      </div>
+                    </div>
+                    {bar && <div className="pl-5">{bar}</div>}
                   </button>
 
                   {isExpanded && (
-                    <div className={`mt-3 ml-4 space-y-2 border-l-2 pl-3 border-${dotColor}-200`}>
+                    <div className={`mt-3 ml-5 space-y-2 border-l-2 pl-3 border-${dotColor}-200`}>
+                      {fundDetail}
                       {rowTransactions.length === 0 && (
                         <p className="text-[11px] text-slate-400 italic py-1">No expenses in this period.</p>
                       )}
