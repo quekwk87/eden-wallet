@@ -4,7 +4,7 @@ import { LEDGER_META } from '../constants';
 import {
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area
 } from 'recharts';
-import { sinkingFundNow, totalMonthlyEnvelopes, trueTransactionsFor } from '../utils';
+import { sinkingFundNow, drawnThisYear, totalMonthlyEnvelopes, trueTransactionsFor } from '../utils';
 import AiAnalyzer from './AiAnalyzer';
 
 interface AnalyticsDashboardProps {
@@ -20,6 +20,11 @@ interface AnalyticsDashboardProps {
 // Tailwind color names cycled for categories that don't have an envelope (and
 // so no explicit color of their own).
 const DOT_COLORS = ['indigo', 'amber', 'rose', 'violet', 'cyan', 'orange', 'pink', 'lime', 'teal', 'blue'];
+
+// Red is for a budget that's actually been exceeded — spending right up to the
+// limit ($0 left) is still within budget. Compared in whole cents so float
+// noise (e.g. 0.1 + 0.2) can't tip an exactly-on-budget total into "over".
+const isOverBudget = (spent: number, limit: number) => Math.round((spent - limit) * 100) > 0;
 
 const getCurrentMonthKey = () => {
   const now = new Date();
@@ -283,8 +288,9 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
           {/* Overall monthly budget */}
           {hasOverall && (() => {
             const p = (stats.totalSpent / monthlyBudget!) * 100;
-            const bar = p >= 100 ? 'bg-rose-500' : p >= 80 ? 'bg-amber-400' : `bg-${themeColor}-600`;
-            const amt = p >= 100 ? 'text-rose-600' : p >= 80 ? 'text-amber-600' : 'text-slate-700';
+            const over = isOverBudget(stats.totalSpent, monthlyBudget!);
+            const bar = over ? 'bg-rose-500' : p >= 80 ? 'bg-amber-400' : `bg-${themeColor}-600`;
+            const amt = over ? 'text-rose-600' : p >= 80 ? 'text-amber-600' : 'text-slate-700';
             const remaining = monthlyBudget! - stats.totalSpent;
             return (
               <div className="mb-5 pb-5 border-b border-slate-100">
@@ -293,7 +299,7 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
                   <div className="flex items-baseline gap-1.5">
                     <span className={`text-xs font-black ${amt}`}>${stats.totalSpent.toFixed(2)}</span>
                     <span className="text-[10px] text-slate-400">/ ${monthlyBudget!.toFixed(2)}</span>
-                    <span className={`text-[10px] font-bold ${amt}`}>· {remaining < 0 ? `$${Math.abs(remaining).toFixed(2)} over` : `$${remaining.toFixed(2)} left`}</span>
+                    <span className={`text-[10px] font-bold ${amt}`}>· {over ? `$${Math.abs(remaining).toFixed(2)} over` : `$${Math.max(remaining, 0).toFixed(2)} left`}</span>
                   </div>
                 </div>
                 <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
@@ -315,23 +321,30 @@ const AnalyticsDashboard: React.FC<AnalyticsDashboardProps> = ({
               if (selectedMonth && row.envelope) {
                 if (isSinkingFund) {
                   const now = sinkingFundNow(row.envelope, trueTransactions);
+                  const spentThisYear = drawnThisYear(row.envelope.name, trueTransactions);
                   budgetBlock = (
-                    <p className="text-[10px] font-semibold text-slate-400 mt-0.5">
-                      Fund balance now: <span className={now < 0 ? 'text-rose-600 font-bold' : 'text-slate-600 font-bold'}>${now.toFixed(2)}</span>
-                      {' '}(${(row.envelope.balance || 0).toFixed(2)} start · +${(row.envelope.monthly_amount || 0).toFixed(2)}/mo)
-                    </p>
+                    <>
+                      <p className="text-[10px] font-semibold text-slate-400 mt-0.5">
+                        Spent this year: <span className="text-slate-600 font-bold">${spentThisYear.toFixed(2)}</span>
+                      </p>
+                      <p className="text-[10px] font-semibold text-slate-400">
+                        Fund balance now: <span className={Math.round(now * 100) < 0 ? 'text-rose-600 font-bold' : 'text-slate-600 font-bold'}>${now.toFixed(2)}</span>
+                        {' '}(${(row.envelope.balance || 0).toFixed(2)} start · +${(row.envelope.monthly_amount || 0).toFixed(2)}/mo)
+                      </p>
+                    </>
                   );
                 } else {
                   const limit = row.envelope.monthly_amount;
                   if (limit > 0) {
                     const p = (row.value / limit) * 100;
-                    const bar = p >= 100 ? 'bg-rose-500' : p >= 80 ? 'bg-amber-400' : `bg-${dotColor}-500`;
-                    const amt = p >= 100 ? 'text-rose-600' : p >= 80 ? 'text-amber-600' : 'text-slate-500';
+                    const over = isOverBudget(row.value, limit);
+                    const bar = over ? 'bg-rose-500' : p >= 80 ? 'bg-amber-400' : `bg-${dotColor}-500`;
+                    const amt = over ? 'text-rose-600' : p >= 80 ? 'text-amber-600' : 'text-slate-500';
                     const remaining = limit - row.value;
                     budgetBlock = (
                       <>
                         <p className={`text-[10px] font-bold mt-0.5 ${amt}`}>
-                          / ${limit.toFixed(2)} budget · {remaining < 0 ? `$${Math.abs(remaining).toFixed(2)} over` : `$${remaining.toFixed(2)} left`}
+                          / ${limit.toFixed(2)} budget · {over ? `$${Math.abs(remaining).toFixed(2)} over` : `$${Math.max(remaining, 0).toFixed(2)} left`}
                         </p>
                         <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden mt-1.5">
                           <div className={`h-full rounded-full transition-all duration-500 ${bar}`} style={{ width: `${Math.min(p, 100)}%` }} />
