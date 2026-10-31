@@ -33,6 +33,7 @@ const AiAnalyzer: React.FC<AiAnalyzerProps> = ({
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notSynced, setNotSynced] = useState(false);
   const chatRef = useRef<Chat | null>(null);
   const messagesRef = useRef<ChatMessage[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -61,6 +62,7 @@ const AiAnalyzer: React.FC<AiAnalyzerProps> = ({
     if (!isAiConfigured) return;
     let cancelled = false;
     setLoadingHistory(true);
+    setNotSynced(false);
     dataStorage.getAiConversation(currentLedger).then(history => {
       if (cancelled) return;
       setMessages(history);
@@ -94,11 +96,14 @@ const AiAnalyzer: React.FC<AiAnalyzerProps> = ({
     const withUser: ChatMessage[] = [...messagesRef.current, { role: 'user', text: question }];
     setMessages(withUser);
     setSending(true);
+    // Save the question straight away, not just once the answer arrives — so the
+    // thread survives a failed/slow answer or the app being closed mid-reply.
+    dataStorage.saveAiConversation(currentLedger, withUser).then(ok => setNotSynced(!ok));
     try {
       const answer = await sendExpenseMessage(chatRef.current, question);
       const withAnswer: ChatMessage[] = [...withUser, { role: 'model', text: answer || "I couldn't work that out — try rephrasing." }];
       setMessages(withAnswer);
-      dataStorage.saveAiConversation(currentLedger, withAnswer);
+      dataStorage.saveAiConversation(currentLedger, withAnswer).then(ok => setNotSynced(!ok));
     } catch (e: any) {
       setError(e?.message || 'Something went wrong talking to the AI. Please try again.');
     } finally {
@@ -110,7 +115,7 @@ const AiAnalyzer: React.FC<AiAnalyzerProps> = ({
     setMessages([]);
     setError(null);
     rebuildChat([]);
-    dataStorage.saveAiConversation(currentLedger, []);
+    dataStorage.saveAiConversation(currentLedger, []).then(ok => setNotSynced(!ok));
   };
 
   if (!isAiConfigured) {
@@ -202,6 +207,12 @@ const AiAnalyzer: React.FC<AiAnalyzerProps> = ({
           <div className="bg-rose-50 border border-rose-100 text-rose-600 text-xs font-semibold rounded-2xl px-4 py-3">
             {error}
           </div>
+        )}
+
+        {notSynced && (
+          <p className="text-[10px] font-semibold text-slate-400 text-center">
+            Couldn't save this chat to the cloud — it's kept on this device and will retry next time you open it.
+          </p>
         )}
       </div>
 

@@ -20,6 +20,27 @@ const withTimeout = <T>(query: PromiseLike<T>, ms: number = TX_TIMEOUT_MS): Prom
     new Promise<T>((_, reject) => setTimeout(() => reject(new Error('Request timed out')), ms)),
   ]);
 
+// ── AI conversation local copy ─────────────────────────────────────────────
+// Kept with a timestamp and a "synced" flag so a copy the cloud never received
+// (failed save, app closed mid-upload) isn't overwritten by an older cloud copy.
+// Older builds stored a bare message array; treated as already synced.
+type StoredConversation = { messages: ChatMessage[]; savedAt: string; synced: boolean };
+
+const readLocalConversation = (ledger: Ledger): StoredConversation | null => {
+  const raw = localStorage.getItem(`${LOCAL_AI_CONVERSATION_KEY}_${ledger}`);
+  if (!raw) return null;
+  try {
+    const v = JSON.parse(raw);
+    return Array.isArray(v) ? { messages: v, savedAt: '', synced: true } : v;
+  } catch {
+    return null;
+  }
+};
+
+const writeLocalConversation = (ledger: Ledger, c: StoredConversation): void => {
+  localStorage.setItem(`${LOCAL_AI_CONVERSATION_KEY}_${ledger}`, JSON.stringify(c));
+};
+
 // ── Category & account-label order ─────────────────────────────────────────
 // Categories and account labels are Records, so their order is JS object key
 // order — but Supabase stores settings in a jsonb column, which discards key
@@ -367,44 +388,69 @@ export const dataStorage = {
    * Supabase first, localStorage mirror/fallback.
    */
   async getAiConversation(ledger: Ledger): Promise<ChatMessage[]> {
-    const local = localStorage.getItem(`${LOCAL_AI_CONVERSATION_KEY}_${ledger}`);
-    const parsedLocal: ChatMessage[] = local ? JSON.parse(local) : [];
+    const local = readLocalConversation(ledger);
 
     if (isSupabaseConfigured && supabase) {
       try {
-        const { data, error } = await supabase
+        const { data, error } = await withTimeout(supabase
           .from('ai_conversations')
-          .select('messages')
+          .select('messages, updated_at')
           .eq('user_id', SHARED_USER_ID)
           .eq('ledger', ledger)
-          .maybeSingle();
+          .maybeSingle());
 
-        if (!error && data?.messages) {
-          localStorage.setItem(`${LOCAL_AI_CONVERSATION_KEY}_${ledger}`, JSON.stringify(data.messages));
-          return data.messages;
+        if (!error) {
+          // This device holds a newer copy the cloud never received (a save that
+          // failed or was cut off by closing the app) — keep it and retry the
+          // upload rather than letting the stale cloud copy overwrite it.
+          const cloudAt = data?.updated_at ? Date.parse(data.updated_at) : 0;
+          if (local && !local.synced && Date.parse(local.savedAt) > cloudAt) {
+            await this.saveAiConversation(ledger, local.messages);
+            return local.messages;
+          }
+          if (data?.messages) {
+            writeLocalConversation(ledger, { messages: data.messages, savedAt: data.updated_at, synced: true });
+            return data.messages;
+          }
         }
       } catch (e) {
         console.error("AI Conversation Fetch Failed:", e);
       }
     }
 
-    return parsedLocal;
+    return local?.messages ?? [];
   },
 
-  async saveAiConversation(ledger: Ledger, messages: ChatMessage[]): Promise<void> {
-    localStorage.setItem(`${LOCAL_AI_CONVERSATION_KEY}_${ledger}`, JSON.stringify(messages));
+  // Resolves true once the conversation is safely stored where it should be (the
+  // cloud, or just this device when there's no cloud configured); false if the
+  // cloud write failed — it's still kept on this device and retried on next load.
+  async saveAiConversation(ledger: Ledger, messages: ChatMessage[]): Promise<boolean> {
+    const savedAt = new Date().toISOString();
+    const cloud = isSupabaseConfigured && !!supabase;
+    writeLocalConversation(ledger, { messages, savedAt, synced: !cloud });
+    if (!cloud) return true;
 
-    if (isSupabaseConfigured && supabase) {
-      const { error } = await supabase
+    try {
+      const { error } = await withTimeout(supabase!
         .from('ai_conversations')
         .upsert({
           user_id: SHARED_USER_ID,
           ledger,
           messages,
-          updated_at: new Date().toISOString(),
-        }, { onConflict: 'user_id,ledger' });
-
-      if (error) console.error("Cloud AI Conversation Sync Failed:", error.message);
+          updated_at: savedAt,
+        }, { onConflict: 'user_id,ledger' }));
+      if (error) {
+        console.error("Cloud AI Conversation Sync Failed:", error.message);
+        return false;
+      }
+      // Only mark synced if nothing newer was saved while this was in flight.
+      if (readLocalConversation(ledger)?.savedAt === savedAt) {
+        writeLocalConversation(ledger, { messages, savedAt, synced: true });
+      }
+      return true;
+    } catch (e) {
+      console.error("Cloud AI Conversation Sync Failed:", e);
+      return false;
     }
   }
 };

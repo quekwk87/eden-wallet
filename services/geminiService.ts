@@ -93,10 +93,23 @@ Rules for answering:
 
 // Converts persisted {role, text} messages into the Content[] shape the SDK
 // wants to seed a chat's prior history. Must start with a 'user' message.
+// Converts persisted {role, text} messages into the Content[] shape the SDK
+// wants to seed a chat's prior history. Gemini needs strictly alternating turns
+// starting with 'user' — a question whose answer never arrived (the request
+// failed, or the app was closed mid-answer) would otherwise leave a dangling or
+// doubled user turn, so those are dropped here (they still show in the UI).
 const toContents = (history: ChatMessage[]): Content[] => {
-  const firstUser = history.findIndex(m => m.role === 'user');
-  const trimmed = firstUser === -1 ? [] : history.slice(firstUser);
-  return trimmed.map(m => ({ role: m.role, parts: [{ text: m.text }] }));
+  const turns: ChatMessage[] = [];
+  for (const m of history) {
+    if (turns.length === 0 && m.role !== 'user') continue;
+    if (turns.length > 0 && turns[turns.length - 1].role === m.role) {
+      if (m.role === 'user') turns[turns.length - 1] = m;
+      continue;
+    }
+    turns.push(m);
+  }
+  if (turns.length > 0 && turns[turns.length - 1].role === 'user') turns.pop();
+  return turns.map(m => ({ role: m.role, parts: [{ text: m.text }] }));
 };
 
 export const createExpenseChat = (
@@ -114,7 +127,13 @@ export const createExpenseChat = (
   });
 };
 
+const REPLY_TIMEOUT_MS = 60000;
+
 export const sendExpenseMessage = async (chat: Chat, message: string): Promise<string> => {
-  const response = await chat.sendMessage({ message });
+  const response = await Promise.race([
+    chat.sendMessage({ message }),
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('The AI took too long to answer. Please try again.')), REPLY_TIMEOUT_MS)),
+  ]);
   return response.text ?? '';
 };
